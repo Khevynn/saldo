@@ -1,0 +1,103 @@
+name: saldo-local
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: finance
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DOCKER_POSTGRES_PASSWORD:-docker-postgres-local-only}
+    ports:
+      - '127.0.0.1:${DOCKER_DB_PORT:-55433}:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d finance']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    networks:
+      - backend
+
+  migrate:
+    build:
+      context: .
+      target: api
+    restart: 'no'
+    command:
+      - sh
+      - -c
+      - node apps/api/dist/database/migrate.js && node apps/api/dist/database/provision.js
+    environment:
+      DATABASE_ADMIN_URL: postgresql://postgres:${DOCKER_POSTGRES_PASSWORD:-docker-postgres-local-only}@db:5432/finance
+      APP_DB_PASSWORD: ${DOCKER_APP_DB_PASSWORD:-docker-finance-app-local-only}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - backend
+
+  api:
+    build:
+      context: .
+      target: api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      HOST: 0.0.0.0
+      PORT: 3000
+      TRUST_PROXY: 1
+      DATABASE_URL: postgresql://finance_app:${DOCKER_APP_DB_PASSWORD:-docker-finance-app-local-only}@db:5432/finance
+      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY:?Defina CLERK_SECRET_KEY no arquivo .env}
+      CLERK_JWT_KEY: ${CLERK_JWT_KEY:-}
+      CLERK_AUDIENCE: ${CLERK_AUDIENCE:-}
+      CLERK_AUTHORIZED_PARTIES: http://localhost:8080,http://127.0.0.1:8080
+      CLERK_STATUS_CACHE_SECONDS: ${CLERK_STATUS_CACHE_SECONDS:-60}
+      WEB_ORIGIN: http://localhost:8080,http://127.0.0.1:8080
+      RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-180}
+      DB_POOL_MAX: ${DB_POOL_MAX:-10}
+      DB_CONNECTION_TIMEOUT_MS: ${DB_CONNECTION_TIMEOUT_MS:-5000}
+      DB_IDLE_TIMEOUT_MS: ${DB_IDLE_TIMEOUT_MS:-30000}
+      DB_STATEMENT_TIMEOUT_MS: ${DB_STATEMENT_TIMEOUT_MS:-15000}
+      DB_TRANSACTION_TIMEOUT_MS: ${DB_TRANSACTION_TIMEOUT_MS:-20000}
+      DB_MAX_CONNECTION_LIFETIME_SECONDS: ${DB_MAX_CONNECTION_LIFETIME_SECONDS:-300}
+      IDEMPOTENCY_RETENTION_DAYS: ${IDEMPOTENCY_RETENTION_DAYS:-90}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - fetch('http://127.0.0.1:3000/api/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks:
+      - backend
+
+  web:
+    build:
+      context: .
+      target: web
+      args:
+        VITE_CLERK_PUBLISHABLE_KEY: ${VITE_CLERK_PUBLISHABLE_KEY:?Defina VITE_CLERK_PUBLISHABLE_KEY no arquivo .env}
+        VITE_API_URL: /api
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:${DOCKER_WEB_PORT:-8080}:8080'
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - backend
+
+networks:
+  backend:
+
+volumes:
+  postgres_data:
