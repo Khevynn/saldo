@@ -10,7 +10,7 @@ describe('clerkJwtKey', () => {
   });
 
   it('envolve uma chave RSA Base64 no formato PEM', () => {
-    const { publicKey } = generateKeyPairSync('rsa', { modulusLength: 1024 });
+    const { publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
     const pem = publicKey.export({ type: 'spki', format: 'pem' }).toString();
     const raw = pem.replace(/-----[^-]+-----|\s/g, '');
     expect(() => createPublicKey(clerkJwtKey(raw))).not.toThrow();
