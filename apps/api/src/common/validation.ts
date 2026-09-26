@@ -70,11 +70,41 @@ export const recurrenceInput = z
     category_id: id.nullish(),
     amount: positiveMoney,
     expected_day: z.number().int().min(1).max(31),
+    interval_months: z.number().int().min(1).max(24).default(1),
     starts_on: date,
     ends_on: date.nullish(),
   })
   .strict()
   .refine((v) => !v.ends_on || v.ends_on >= v.starts_on, 'Fim anterior ao início.');
+export const futurePlanInput = z
+  .object({
+    name,
+    theme: z.enum(['move', 'travel', 'education', 'purchase', 'project', 'other']),
+    target_date: date,
+    estimated_cost: positiveMoney,
+    reserved_amount: moneyInput.default('0'),
+    notes: z.string().trim().max(1000).nullish(),
+  })
+  .strict();
+export const futurePlanItemInput = z
+  .object({
+    kind: z.enum(['income', 'expense']),
+    name,
+    cadence: z.enum(['once', 'recurring']),
+    interval_months: z.number().int().min(1).max(60).default(1),
+    pocket_id: id.optional(),
+    amount: positiveMoney,
+    due_on: date.nullish(),
+    notes: z.string().trim().max(500).nullish(),
+  })
+  .strict();
+export const futurePlanPocketInput = z
+  .object({
+    name: name.max(80),
+    kind: z.enum(['benefit', 'reserve']),
+    opening_balance: moneyInput.default('0'),
+  })
+  .strict();
 export const occurrenceConfirm = z
   .object({ account_id: id, amount: positiveMoney, occurred_on: pastDate })
   .strict();
@@ -175,6 +205,7 @@ const labels: Record<string, string> = {
   opening_date: 'Data inicial',
   description: 'Descrição',
   expected_day: 'Dia esperado',
+  interval_months: 'Frequência',
   starts_on: 'Início',
   ends_on: 'Fim',
   target: 'Objetivo',
@@ -189,6 +220,11 @@ const labels: Record<string, string> = {
   due_on: 'Data de vencimento',
   schedule: 'Parcelas',
   month: 'Mês',
+  theme: 'Tipo de plano',
+  target_date: 'Data desejada',
+  estimated_cost: 'Custo estimado',
+  reserved_amount: 'Valor já reservado',
+  notes: 'Notas',
   page: 'Página',
   version: 'Versão do registro',
 };

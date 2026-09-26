@@ -206,6 +206,113 @@ describe('financial integration with PostgreSQL engine and runtime RLS role', ()
     expect(await balance(source)).toBe(before);
     expect((await planning.occurrences(user, '2026-02'))[0].state).toBe('pending');
   });
+  it('materializes recurrences only on the configured month interval', async () => {
+    const intervalRule = await planning.createRecurrence(user, {
+      description: 'Seguro trimestral',
+      kind: 'expense',
+      account_id: source,
+      category_id: expense,
+      amount: '90',
+      expected_day: 10,
+      interval_months: 3,
+      starts_on: '2026-01-01',
+    });
+    expect(
+      (await planning.occurrences(user, '2026-01')).some(
+        (o) => o.description === 'Seguro trimestral',
+      ),
+    ).toBe(true);
+    expect(
+      (await planning.occurrences(user, '2026-02')).some(
+        (o) => o.description === 'Seguro trimestral',
+      ),
+    ).toBe(false);
+    expect(
+      (await planning.occurrences(user, '2026-03')).some(
+        (o) => o.description === 'Seguro trimestral',
+      ),
+    ).toBe(false);
+    expect(
+      (await planning.occurrences(user, '2026-04')).some(
+        (o) => o.description === 'Seguro trimestral',
+      ),
+    ).toBe(true);
+    await planning.toggle(user, intervalRule.id, { active: false });
+  });
+  it('keeps future plans isolated from real balances', async () => {
+    const before = await balance(source);
+    const plan = await planning.createFuturePlan(user, {
+      name: 'Mudança para Lisboa',
+      theme: 'move',
+      target_date: '2027-06-01',
+      estimated_cost: '3000',
+      reserved_amount: '600',
+      notes: 'Caução e transporte',
+    });
+    expect(await balance(source)).toBe(before);
+    expect((await planning.futurePlans(user))[0]).toMatchObject({
+      id: plan.id,
+      remaining: '2400.00',
+      status: 'active',
+    });
+    await planning.createFuturePlanItem(user, plan.id, {
+      kind: 'income',
+      name: 'Salário líquido',
+      cadence: 'recurring',
+      interval_months: 1,
+      amount: '1800',
+      due_on: null,
+      notes: null,
+    });
+    await planning.createFuturePlanItem(user, plan.id, {
+      kind: 'expense',
+      name: 'Custo de vida',
+      cadence: 'recurring',
+      interval_months: 1,
+      amount: '1200',
+      due_on: null,
+      notes: null,
+    });
+    const projected = (await planning.futurePlans(user))[0];
+    expect(projected).toMatchObject({
+      monthly_income: '1800.00',
+      monthly_expenses: '1200.00',
+      monthly_capacity: '600.00',
+      upfront_gap: '2400.00',
+      viability: 'not_viable',
+    });
+    expect(projected.items).toHaveLength(3);
+    const livingCost = projected.items.find((item: any) => item.name === 'Custo de vida');
+    await planning.editFuturePlanItem(user, plan.id, livingCost.id, { amount: '1900' });
+    expect((await planning.futurePlans(user))[0]).toMatchObject({
+      monthly_capacity: '-100.00',
+      viability: 'not_viable',
+    });
+    await planning.deleteFuturePlanItem(user, plan.id, livingCost.id);
+    expect((await planning.futurePlans(user))[0].items).toHaveLength(2);
+    const benefitPocket = await planning.createFuturePlanPocket(user, plan.id, {
+      name: 'Alimentação',
+      kind: 'benefit',
+      opening_balance: '100',
+    });
+    expect((await planning.futurePlans(user))[0].pockets).toHaveLength(2);
+    await planning.editFuturePlanPocket(user, plan.id, benefitPocket.id, {
+      opening_balance: '150',
+    });
+    expect(
+      (await planning.futurePlans(user))[0].pockets.find(
+        (pocket: any) => pocket.id === benefitPocket.id,
+      ).opening_balance,
+    ).toBe('150.00');
+    await planning.deleteFuturePlanPocket(user, plan.id, benefitPocket.id);
+    expect((await planning.futurePlans(user))[0].pockets).toHaveLength(1);
+    await planning.editFuturePlan(user, plan.id, { status: 'completed' });
+    expect((await planning.futurePlans(user))[0].status).toBe('completed');
+    expect(await balance(source)).toBe(before);
+    await planning.deleteFuturePlan(user, plan.id);
+    expect((await planning.futurePlans(user)).some((item) => item.id === plan.id)).toBe(false);
+    expect(await balance(source)).toBe(before);
+  });
   it('goals derive from account balance; edits and deletions recalculate history', async () => {
     await planning.createGoal(user, {
       name: 'Reserva',

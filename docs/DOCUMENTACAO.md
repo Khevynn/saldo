@@ -248,13 +248,16 @@ Também controla os diálogos compartilhados de formulários e compras.
 
 ### 8.3 Planejamento
 
-| Tabela         | Função                                                  |
-| -------------- | ------------------------------------------------------- |
-| `recurrences`  | Regras mensais esperadas                                |
-| `occurrences`  | Ocorrências mensais pendentes, ignoradas ou confirmadas |
-| `budget_rules` | Versões do orçamento padrão a partir de determinado mês |
-| `budgets`      | Exceções de orçamento para um único mês                 |
-| `goals`        | Objetivos associados a contas reservadas                |
+| Tabela                | Função                                                                |
+| --------------------- | --------------------------------------------------------------------- |
+| `recurrences`         | Regras esperadas com intervalo configurável                           |
+| `occurrences`         | Ocorrências mensais pendentes, ignoradas ou confirmadas               |
+| `budget_rules`        | Versões do orçamento padrão a partir de determinado mês               |
+| `budgets`             | Exceções de orçamento para um único mês                               |
+| `goals`               | Objetivos associados a contas reservadas                              |
+| `future_plans`        | Cenários futuros isolados do fluxo financeiro real                    |
+| `future_plan_items`   | Receitas e gastos hipotéticos, pontuais ou mensais, de cada cenário   |
+| `future_plan_pockets` | Caixas Principal, benefício e reserva isoladas dentro de cada cenário |
 
 ### 8.4 Cartões
 
@@ -328,7 +331,7 @@ Exclusão é lógica. O registro permanece para auditoria, mas deixa de particip
 
 ## 11. Recorrências
 
-Uma recorrência representa uma expectativa mensal. Ela nunca altera saldo diretamente.
+Uma recorrência representa uma expectativa com intervalo de 1 a 24 meses. Ela nunca altera saldo diretamente.
 
 Ao consultar um mês, o sistema materializa uma ocorrência de forma idempotente. A ocorrência pode ser:
 
@@ -446,26 +449,36 @@ Filtros opcionais da listagem: `account_id` e `category_id`.
 
 ### 15.4 Recorrências e ocorrências
 
-| Método | Rota                                | Função                               |
-| ------ | ----------------------------------- | ------------------------------------ |
-| GET    | `/recurrences`                      | Lista regras recorrentes             |
-| POST   | `/recurrences`                      | Cria regra mensal                    |
-| PATCH  | `/recurrences/:id`                  | Edita ou ativa/desativa regra        |
-| GET    | `/occurrences?month=YYYY-MM`        | Materializa e lista previsões do mês |
-| PATCH  | `/occurrences/:id`                  | Edita ou ignora uma ocorrência       |
-| POST   | `/occurrences/:id/confirm`          | Cria a movimentação real             |
-| POST   | `/occurrences/:id/link-transaction` | Vincula movimentação existente       |
+| Método | Rota                                | Função                                |
+| ------ | ----------------------------------- | ------------------------------------- |
+| GET    | `/recurrences`                      | Lista regras recorrentes              |
+| POST   | `/recurrences`                      | Cria regra com intervalo configurável |
+| PATCH  | `/recurrences/:id`                  | Edita ou ativa/desativa regra         |
+| GET    | `/occurrences?month=YYYY-MM`        | Materializa e lista previsões do mês  |
+| PATCH  | `/occurrences/:id`                  | Edita ou ignora uma ocorrência        |
+| POST   | `/occurrences/:id/confirm`          | Cria a movimentação real              |
+| POST   | `/occurrences/:id/link-transaction` | Vincula movimentação existente        |
 
 ### 15.5 Orçamentos e metas
 
-| Método | Rota                                   | Função                                |
-| ------ | -------------------------------------- | ------------------------------------- |
-| GET    | `/budgets/:month`                      | Retorna orçamento e utilização do mês |
-| PUT    | `/budgets/:month`                      | Salva regra futura ou exceção mensal  |
-| DELETE | `/budgets/:month/:categoryId/override` | Remove exceção mensal                 |
-| GET    | `/goals`                               | Lista metas e progresso calculado     |
-| POST   | `/goals`                               | Cria meta associada a uma conta       |
-| PATCH  | `/goals/:id`                           | Edita ou arquiva meta                 |
+| Método | Rota                                      | Função                                |
+| ------ | ----------------------------------------- | ------------------------------------- |
+| GET    | `/budgets/:month`                         | Retorna orçamento e utilização do mês |
+| PUT    | `/budgets/:month`                         | Salva regra futura ou exceção mensal  |
+| DELETE | `/budgets/:month/:categoryId/override`    | Remove exceção mensal                 |
+| GET    | `/goals`                                  | Lista metas e progresso calculado     |
+| POST   | `/goals`                                  | Cria meta associada a uma conta       |
+| PATCH  | `/goals/:id`                              | Edita ou arquiva meta                 |
+| GET    | `/future-plans`                           | Lista cenários futuros                |
+| POST   | `/future-plans`                           | Cria cenário isolado                  |
+| PATCH  | `/future-plans/:id`                       | Edita, conclui ou arquiva cenário     |
+| DELETE | `/future-plans/:id`                       | Exclui o cenário e seus itens         |
+| POST   | `/future-plans/:id/items`                 | Adiciona receita ou gasto ao cenário  |
+| PATCH  | `/future-plans/:planId/items/:itemId`     | Edita uma hipótese do cenário         |
+| DELETE | `/future-plans/:planId/items/:itemId`     | Remove uma hipótese do cenário        |
+| POST   | `/future-plans/:id/pockets`               | Cria uma caixa separada no cenário    |
+| PATCH  | `/future-plans/:planId/pockets/:pocketId` | Edita uma caixa do cenário            |
+| DELETE | `/future-plans/:planId/pockets/:pocketId` | Exclui uma caixa vazia                |
 
 ### 15.6 Cartões
 
@@ -570,6 +583,32 @@ docker compose down -v
 ```
 
 O último comando é destrutivo somente para o volume Docker do projeto.
+
+### Acesso público com Cloudflare Tunnel
+
+O override `compose.cloudflare.yaml` adiciona um container `cloudflared` à mesma rede privada do Nginx. O túnel abre conexões de saída para a Cloudflare. Nenhuma porta do roteador precisa ser encaminhada.
+
+Fluxo:
+
+```text
+navegador remoto
+-> HTTPS Cloudflare
+-> Cloudflare Tunnel
+-> container web:8080
+-> arquivos React ou proxy /api
+-> container api:3000
+-> container db:5432
+```
+
+A rota publicada no painel Cloudflare deve usar `http://web:8080` como Service URL. O ambiente público é iniciado com:
+
+```sh
+npm run docker:public:up
+```
+
+As variáveis obrigatórias adicionais são `PUBLIC_APP_URL`, `CLOUDFLARE_TUNNEL_TOKEN` e `CLERK_JWT_KEY`. A origem pública deve usar HTTPS e não deve terminar com barra.
+
+O túnel não transforma um computador pessoal em hospedagem de alta disponibilidade. Se o computador desligar, o Docker parar ou a Internet cair, a aplicação fica indisponível.
 
 ## 19. Execução sem Docker
 
@@ -725,13 +764,13 @@ Use `request_id` para correlacionar o erro recebido pelo usuário com o log da A
 
 - moeda única EUR;
 - regime de caixa;
-- recorrência mensal;
+- recorrências entre 1 e 24 meses;
 - cartão com pagamento integral;
 - sem rotativo, pagamento parcial ou juros automáticos;
 - sem integração bancária;
 - sem organizações ou compartilhamento;
 - sem investimentos com cotação;
-- sem planejamento estratégico de cenários;
+- cenários futuros sem ligação automática com contas ou transações;
 - compras, faturas, cartões, recorrências e metas ainda precisam de paginação para históricos muito grandes;
 - rate limit em memória atende uma réplica, mas múltiplas réplicas exigem Redis ou gateway compartilhado;
 - relatórios históricos podem exigir snapshots reconstruíveis quando o volume justificar;

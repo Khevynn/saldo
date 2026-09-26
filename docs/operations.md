@@ -16,6 +16,14 @@ O limitador em memória funciona em uma única réplica. Antes de executar mais 
 
 O frontend deve ser entregue com os cabeçalhos presentes em `apps/web/public/_headers`. Confirme que o provedor os aplica. Ative HSTS no ponto que encerra TLS. Defina uma CSP depois de confirmar os domínios Clerk da instância; uma política genérica pode bloquear login. A API define `Cache-Control: no-store` em todas as respostas.
 
+### Cloudflare Tunnel
+
+`compose.cloudflare.yaml` executa um túnel gerenciado remotamente. A rota publicada deve apontar para `http://web:8080`, que é o Nginx dentro da rede Docker. Não abra portas no roteador. Cloudflare termina o HTTPS público e a conexão do conector até a rede Cloudflare é iniciada de dentro do servidor.
+
+O override executa a API com `NODE_ENV=production`, restringe CORS e Clerk à origem `PUBLIC_APP_URL` e exige `CLERK_JWT_KEY`. A conexão sem TLS com o PostgreSQL é aceita somente quando a opção explícita está ativa e o hostname do banco é exatamente `db`, na rede Docker privada. Bancos externos continuam obrigados a usar TLS.
+
+O token do túnel é uma credencial. Quem o possuir pode executar outra réplica do túnel. Guarde-o no `.env`, não o envie por chat e rotacione-o no painel se houver exposição.
+
 ## Configuração de produção
 
 Use `NODE_ENV=production`, `CLERK_JWT_KEY` e uma `DATABASE_URL` que contenha `sslmode=require`, `sslmode=verify-ca` ou `sslmode=verify-full`. Prefira `verify-full` quando o provedor disponibilizar a cadeia de certificados. A API recusa inicialização sem essas condições.

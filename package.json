@@ -21,7 +21,10 @@
     "format": "prettier --write apps scripts docs README.md package.json tsconfig.json vitest.config.ts",
     "db:migrate": "tsx --env-file=.env apps/api/src/database/migrate.ts",
     "db:backup": "node --experimental-strip-types --env-file=.env scripts/backup-database.ts",
-    "db:provision": "tsx --env-file=.env apps/api/src/database/provision.ts"
+    "db:provision": "tsx --env-file=.env apps/api/src/database/provision.ts",
+    "docker:public:up": "docker compose -f compose.yaml -f compose.cloudflare.yaml up --build -d",
+    "docker:public:logs": "docker compose -f compose.yaml -f compose.cloudflare.yaml logs -f tunnel web api db",
+    "docker:public:down": "docker compose -f compose.yaml -f compose.cloudflare.yaml down"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.3.14",
