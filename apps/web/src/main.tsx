@@ -5,6 +5,7 @@ import { ClerkProvider, SignIn, SignUp, SignedIn, SignedOut, useUser } from '@cl
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { App } from './app';
 import './styles.css';
+import './redesign.css';
 
 function SessionApp() {
   const { user } = useUser();

@@ -38,7 +38,7 @@ export class ReportingController {
       );
       const byCategory = await rows(
         db,
-        sql`SELECT c.name,sum(e.amount)::text AS amount FROM cash_effects e JOIN categories c ON c.user_id=e.user_id AND c.id=e.category_id WHERE e.user_id=${user} AND e.kind='expense' AND e.occurred_on>=${periodStart}::date AND e.occurred_on<${shiftMonth(m, 1) + '-01'}::date GROUP BY c.id,c.name ORDER BY sum(e.amount) DESC`,
+        sql`SELECT c.id AS category_id,c.name,sum(e.amount)::text AS amount FROM cash_effects e JOIN categories c ON c.user_id=e.user_id AND c.id=e.category_id WHERE e.user_id=${user} AND e.kind='expense' AND e.occurred_on>=${periodStart}::date AND e.occurred_on<${shiftMonth(m, 1) + '-01'}::date GROUP BY c.id,c.name ORDER BY sum(e.amount) DESC`,
       );
       const [start] = await rows(
         db,

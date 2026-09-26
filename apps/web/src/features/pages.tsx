@@ -2,6 +2,7 @@ import Decimal from 'decimal.js';
 import { Fragment, useState } from 'react';
 import {
   ArrowLeftRight,
+  ArrowLeft,
   ArrowDownLeft,
   ArrowUpRight,
   Wallet,
@@ -15,8 +16,19 @@ import {
   Archive,
   ArchiveRestore,
   ChevronRight,
+  MapPin,
+  Plane,
+  GraduationCap,
+  ShoppingBag,
+  Hammer,
+  Sparkles,
+  CircleCheckBig,
+  TrendingUp,
+  TrendingDown,
+  CalendarClock,
+  Boxes,
 } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import {
   AddButton,
   Empty,
@@ -34,6 +46,9 @@ import {
   accountOptions,
   cardForm,
   decimal,
+  futurePlanForm,
+  futurePlanItemForm,
+  futurePlanPocketForm,
   goalForm,
   options,
   recurrenceCreateForm,
@@ -73,6 +88,15 @@ const accountSections = [
     description: 'Saldos com uso específico, como alimentação.',
   },
 ] as const;
+const planThemes = {
+  move: { label: 'Mudança', Icon: MapPin },
+  travel: { label: 'Viagem', Icon: Plane },
+  education: { label: 'Estudo', Icon: GraduationCap },
+  purchase: { label: 'Compra', Icon: ShoppingBag },
+  project: { label: 'Projeto', Icon: Hammer },
+  other: { label: 'Outro', Icon: Sparkles },
+} as const;
+const cadenceLabel = (months: number) => (months === 1 ? 'Todo mês' : `A cada ${months} meses`);
 const zeroForm = (
   title: string,
   path: string,
@@ -121,33 +145,35 @@ export function Accounts({ accounts, open }: Props) {
                   <h2>{section.title}</h2>
                   <p>{section.description}</p>
                 </div>
-                <div className="cards-grid">
+                <div className="account-ledger">
                   {sectionAccounts.map((a) => (
                     <article className={`account-card ${a.archived ? 'archived' : ''}`} key={a.id}>
-                      <div className="split">
-                        <span className="account-icon">
-                          <Wallet size={21} />
-                        </span>
-                        <span className="badge">
-                          {a.archived
-                            ? 'Arquivada'
-                            : a.purpose === 'reserved'
-                              ? 'Reserva'
-                              : a.purpose === 'restricted'
-                                ? 'Benefício'
-                                : 'Dia a dia'}
-                        </span>
+                      <span className="account-icon">
+                        <Wallet size={21} />
+                      </span>
+                      <div className="account-copy">
+                        <div className="account-name">
+                          <h2>{a.name}</h2>
+                          <span className="badge">
+                            {a.archived
+                              ? 'Arquivada'
+                              : a.purpose === 'reserved'
+                                ? 'Reserva'
+                                : a.purpose === 'restricted'
+                                  ? 'Benefício'
+                                  : 'Dia a dia'}
+                          </span>
+                        </div>
+                        <p>Saldo atual · desde {dateLabel(a.opening_date)}</p>
+                        {Number(a.balance) < 0 && (
+                          <p className="danger">
+                            Saldo negativo. Verifique os registros desta conta.
+                          </p>
+                        )}
                       </div>
-                      <h2>{a.name}</h2>
                       <strong className={Number(a.balance) < 0 ? 'danger' : ''}>
                         {euro(a.balance)}
                       </strong>
-                      <p>Saldo atual · desde {dateLabel(a.opening_date)}</p>
-                      {Number(a.balance) < 0 && (
-                        <p className="danger">
-                          Saldo negativo. Verifique os registros desta conta.
-                        </p>
-                      )}
                       <div className="card-actions">
                         <button
                           className="icon-button"
@@ -483,7 +509,7 @@ export function Budgets({ month, setMonth, open, categories }: Props) {
           </Empty>
         </Panel>
       ) : (
-        <div className="budget-grid">
+        <div className="budget-grid budget-list">
           {items.map((b) => {
             const limit = b.budget === null ? null : Number(b.budget),
               spent = Number(b.spent),
@@ -558,7 +584,10 @@ export function Budgets({ month, setMonth, open, categories }: Props) {
                   <span> / {limit === null ? 'Sem orçamento' : euro(b.budget)}</span>
                 </div>
                 {limit !== null && (
-                  <Progress value={limit > 0 ? (spent / limit) * 100 : spent > 0 ? 100 : 0} />
+                  <Progress
+                    value={limit > 0 ? (spent / limit) * 100 : spent > 0 ? 100 : 0}
+                    danger={over}
+                  />
                 )}
                 {b.utilization !== null && b.utilization !== undefined && (
                   <small>{String(b.utilization).replace('.', ',')}% do limite utilizado</small>
@@ -644,7 +673,7 @@ export function Goals({ open, accounts }: Props) {
           </Empty>
         </Panel>
       ) : (
-        <div className="cards-grid">
+        <div className="cards-grid goals-list">
           {query.data?.map((g) => {
             const progress = Number(g.progress),
               remaining = g.remaining,
@@ -756,6 +785,644 @@ export function Goals({ open, accounts }: Props) {
   );
 }
 
+export function FuturePlans({ open }: Props) {
+  const plans = useData('/future-plans');
+  const { planId } = useParams();
+  const activePlans = (plans.data || []).filter((plan) => plan.status === 'active');
+  const report = activePlans.reduce(
+    (total, plan) => ({
+      upfrontGap: total.upfrontGap.plus(plan.upfront_gap || 0),
+      monthlyIncome: total.monthlyIncome.plus(plan.monthly_income || 0),
+      monthlyExpenses: total.monthlyExpenses.plus(plan.monthly_expenses || 0),
+      periodicExpenses: total.periodicExpenses.plus(plan.periodic_expenses || 0),
+      projectedBalance: total.projectedBalance.plus(plan.projected_balance || 0),
+    }),
+    {
+      upfrontGap: new Decimal(0),
+      monthlyIncome: new Decimal(0),
+      monthlyExpenses: new Decimal(0),
+      periodicExpenses: new Decimal(0),
+      projectedBalance: new Decimal(0),
+    },
+  );
+  if (!planId)
+    return (
+      <>
+        <PageHeader
+          eyebrow="HORIZONTES"
+          title="Seus planos, sem ruído."
+          description="Compare os cenários rapidamente e abra um deles quando quiser analisar cada detalhe."
+          action={<AddButton onClick={() => open(futurePlanForm())}>Novo plano</AddButton>}
+        />
+        <LoadState loading={plans.isLoading} error={plans.error} />
+        <div className="future-intro">
+          <span>01</span>
+          <p>
+            Este é apenas o índice dos seus cenários. Caixas, receitas, despesas e projeções ficam
+            dentro do dashboard de cada plano.
+          </p>
+        </div>
+        {!!activePlans.length && (
+          <section className="planning-report" aria-label="Relatório geral dos planos">
+            <div className="planning-report-title">
+              <span>RELATÓRIO GERAL</span>
+              <h2>
+                {activePlans.length}{' '}
+                {activePlans.length === 1 ? 'cenário ativo' : 'cenários ativos'}
+              </h2>
+              <p>Visão consolidada das hipóteses, sem misturar os valores com suas contas reais.</p>
+            </div>
+            <div>
+              <small>Falta disponível agora</small>
+              <strong className={report.upfrontGap.gt(0) ? 'negative' : ''}>
+                {euro(report.upfrontGap.toFixed(2))}
+              </strong>
+            </div>
+            <div>
+              <small>Resultado mensal</small>
+              <strong
+                className={
+                  report.monthlyIncome.minus(report.monthlyExpenses).lt(0) ? 'negative' : ''
+                }
+              >
+                {euro(report.monthlyIncome.minus(report.monthlyExpenses).toFixed(2))}
+              </strong>
+            </div>
+            <div>
+              <small>Contas periódicas</small>
+              <strong>{euro(report.periodicExpenses.toFixed(2))}</strong>
+            </div>
+            <div>
+              <small>Saldo final projetado</small>
+              <strong className={report.projectedBalance.lt(0) ? 'negative' : ''}>
+                {euro(report.projectedBalance.toFixed(2))}
+              </strong>
+            </div>
+          </section>
+        )}
+        {!plans.data?.length ? (
+          <Panel title="Seus próximos capítulos">
+            <Empty
+              title="Ainda não há planos no horizonte"
+              action={
+                <AddButton onClick={() => open(futurePlanForm())}>Criar primeiro plano</AddButton>
+              }
+            >
+              Defina uma data e uma primeira estimativa. O dashboard ajudará a detalhar o restante.
+            </Empty>
+          </Panel>
+        ) : (
+          <div className="plan-directory">
+            {plans.data.map((plan) => {
+              const theme = planThemes[plan.theme as keyof typeof planThemes] || planThemes.other;
+              const { Icon } = theme;
+              const state =
+                Number(plan.upfront_gap) > 0
+                  ? { label: `Faltam ${euro(plan.upfront_gap)} agora`, className: 'not_viable' }
+                  : Number(plan.monthly_margin) < 0
+                    ? {
+                        label: `Déficit mensal de ${euro(Math.abs(Number(plan.monthly_margin)))}`,
+                        className: 'not_viable',
+                      }
+                    : { label: 'Cenário sustentável', className: plan.viability || 'viable' };
+              return (
+                <article className="plan-directory-row" key={plan.id}>
+                  <div className="plan-directory-title">
+                    <span className="future-icon">
+                      <Icon size={18} />
+                    </span>
+                    <div>
+                      <span className="future-index">{theme.label}</span>
+                      <h2>{plan.name}</h2>
+                      <p>
+                        {dateLabel(plan.target_date)} · {plan.months_remaining}{' '}
+                        {Number(plan.months_remaining) === 1 ? 'mês' : 'meses'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="plan-directory-metrics">
+                    <div>
+                      <small>Disponível agora</small>
+                      <strong>{euro(plan.upfront_available ?? plan.reserved_amount)}</strong>
+                    </div>
+                    <div>
+                      <small>Resultado mensal</small>
+                      <strong className={Number(plan.monthly_margin) < 0 ? 'negative' : ''}>
+                        {euro(plan.monthly_margin)}
+                      </strong>
+                    </div>
+                    <div>
+                      <small>Saldo projetado</small>
+                      <strong className={Number(plan.projected_balance) < 0 ? 'negative' : ''}>
+                        {euro(plan.projected_balance)}
+                      </strong>
+                    </div>
+                  </div>
+                  <div className="plan-directory-status">
+                    <span className={state.className}>{state.label}</span>
+                    <Link className="button small" to={`/future-plans/${plan.id}`}>
+                      Abrir dashboard <ChevronRight size={15} />
+                    </Link>
+                  </div>
+                  <div className="plan-directory-actions">
+                    <button
+                      className="icon-button"
+                      aria-label={`Editar plano ${plan.name}`}
+                      onClick={() => open(futurePlanForm(plan))}
+                    >
+                      <Pencil size={15} />
+                    </button>
+                    <button
+                      className="icon-button"
+                      aria-label={`Excluir plano ${plan.name}`}
+                      onClick={() =>
+                        open(
+                          zeroForm(
+                            'Excluir plano definitivamente',
+                            `/future-plans/${plan.id}`,
+                            'DELETE',
+                            'O plano e todas as hipóteses deste cenário serão apagados. Suas finanças reais não serão alteradas.',
+                          ),
+                        )
+                      }
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </>
+    );
+  const selectedPlan = plans.data?.find((plan) => plan.id === planId);
+  return (
+    <>
+      <PageHeader
+        eyebrow="DASHBOARD DO PLANO"
+        title={selectedPlan?.name || 'Carregando plano…'}
+        description="Analise caixas, desembolsos, fluxo mensal, contas periódicas e a projeção completa deste cenário."
+        action={
+          <Link className="button secondary" to="/future-plans">
+            <ArrowLeft size={16} /> Todos os planos
+          </Link>
+        }
+      />
+      <LoadState loading={plans.isLoading} error={plans.error} />
+      {plans.isLoading ? null : !selectedPlan ? (
+        <Panel title="Plano não encontrado">
+          <Empty
+            title="Este cenário não está mais disponível"
+            action={
+              <Link className="button" to="/future-plans">
+                Voltar aos planos
+              </Link>
+            }
+          >
+            Ele pode ter sido excluído ou o endereço está incorreto.
+          </Empty>
+        </Panel>
+      ) : (
+        <div className="scenario-list">
+          {[selectedPlan!].map((plan) => {
+            const theme = planThemes[plan.theme as keyof typeof planThemes] || planThemes.other;
+            const { Icon } = theme;
+            const pockets = plan.pockets?.length
+              ? plan.pockets
+              : [
+                  {
+                    id: 'principal',
+                    name: 'Principal',
+                    kind: 'principal',
+                    opening_balance: plan.reserved_amount,
+                    closing_balance: plan.projected_balance,
+                    upfront_cost: plan.total_cost,
+                    upfront_gap: plan.remaining,
+                    monthly_income: plan.monthly_income,
+                    monthly_expenses: plan.monthly_expenses,
+                    monthly_margin: plan.monthly_margin,
+                    items: plan.items || [],
+                  },
+                ];
+            const viability =
+              plan.viability || (Number(plan.remaining) > 0 ? 'not_viable' : 'viable');
+            const verdict =
+              Number(plan.upfront_gap) > 0
+                ? {
+                    label: 'Dinheiro imediato insuficiente',
+                    text: `Você precisa ter mais ${euro(plan.upfront_gap)} disponível agora.`,
+                  }
+                : viability === 'viable'
+                  ? {
+                      label: 'Plano viável',
+                      text: `Sobra projetada de ${euro(plan.projected_balance)}.`,
+                    }
+                  : viability === 'tight'
+                    ? {
+                        label: 'Cabe, mas está apertado',
+                        text: `A margem projetada é de ${euro(plan.projected_balance)}.`,
+                      }
+                    : {
+                        label: 'Ainda não fecha',
+                        text: `Faltam ${euro(plan.remaining)} para o cenário ser possível.`,
+                      };
+            return (
+              <article
+                className={`scenario future-${plan.theme} ${plan.status !== 'active' ? 'archived' : ''}`}
+                key={plan.id}
+              >
+                <header className="scenario-header">
+                  <div className="scenario-title">
+                    <span className="future-icon">
+                      <Icon size={19} />
+                    </span>
+                    <div>
+                      <span className="future-index">{theme.label}</span>
+                      <h2>{plan.name}</h2>
+                      <p>
+                        <CalendarClock size={14} /> {dateLabel(plan.target_date)} ·{' '}
+                        {plan.months_remaining}{' '}
+                        {Number(plan.months_remaining) === 1 ? 'mês' : 'meses'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className={`scenario-verdict ${viability}`}>
+                    <strong>{verdict.label}</strong>
+                    <span>{verdict.text}</span>
+                  </div>
+                </header>
+                {plan.notes && <p className="scenario-notes">{plan.notes}</p>}
+                <div className="scenario-metrics">
+                  <div>
+                    <small>Desembolso necessário agora</small>
+                    <strong>{euro(plan.upfront_cost ?? plan.total_cost)}</strong>
+                  </div>
+                  <div>
+                    <small>Disponível agora nas caixas</small>
+                    <strong>{euro(plan.upfront_available ?? plan.reserved_amount)}</strong>
+                  </div>
+                  <div>
+                    <small>Falta para o desembolso</small>
+                    <strong className={Number(plan.upfront_gap) > 0 ? 'negative' : ''}>
+                      {euro(plan.upfront_gap)}
+                    </strong>
+                  </div>
+                  <div>
+                    <small>Contas periódicas no período</small>
+                    <strong>{euro(plan.periodic_expenses)}</strong>
+                  </div>
+                </div>
+                <div className="scenario-progress">
+                  <div>
+                    <span>Cobertura total até a data final</span>
+                    <b>{Number(plan.progress || 0).toFixed(0)}% projetado</b>
+                  </div>
+                  <Progress value={Number(plan.progress || 0)} />
+                </div>
+                <section className="scenario-pockets">
+                  <div className="scenario-pockets-header">
+                    <div>
+                      <span>CAIXAS DO CENÁRIO</span>
+                      <h3>Separe de onde cada valor vem e para onde ele vai</h3>
+                    </div>
+                    <button
+                      className="button secondary small"
+                      onClick={() => open(futurePlanPocketForm(plan.id))}
+                    >
+                      <Plus size={14} /> Nova caixa
+                    </button>
+                  </div>
+                  <div className="scenario-pocket-grid">
+                    {pockets.map((pocket: Row) => (
+                      <article className={`scenario-pocket ${pocket.kind}`} key={pocket.id}>
+                        <header>
+                          <div>
+                            <span>
+                              <Boxes size={15} />{' '}
+                              {pocket.kind === 'principal'
+                                ? 'Principal'
+                                : pocket.kind === 'benefit'
+                                  ? 'Benefício'
+                                  : 'Reserva'}
+                            </span>
+                            <h4>{pocket.name}</h4>
+                          </div>
+                          <div className="scenario-pocket-actions">
+                            <button
+                              className="icon-button"
+                              aria-label={`Editar caixa ${pocket.name}`}
+                              onClick={() => open(futurePlanPocketForm(plan.id, pocket))}
+                            >
+                              <Pencil size={14} />
+                            </button>
+                            {pocket.kind !== 'principal' && (
+                              <button
+                                className="icon-button"
+                                aria-label={`Excluir caixa ${pocket.name}`}
+                                onClick={() =>
+                                  open(
+                                    zeroForm(
+                                      'Excluir caixa do cenário',
+                                      `/future-plans/${plan.id}/pockets/${pocket.id}`,
+                                      'DELETE',
+                                      'A caixa só poderá ser excluída quando não tiver receitas ou despesas vinculadas.',
+                                    ),
+                                  )
+                                }
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            )}
+                          </div>
+                        </header>
+                        <div className="scenario-pocket-summary">
+                          <div>
+                            <small>Disponível agora</small>
+                            <strong>{euro(pocket.opening_balance)}</strong>
+                          </div>
+                          <div>
+                            <small>Desembolso imediato</small>
+                            <strong>{euro(pocket.upfront_cost)}</strong>
+                          </div>
+                          <div>
+                            <small>Resultado mensal</small>
+                            <strong className={Number(pocket.monthly_margin) < 0 ? 'negative' : ''}>
+                              {euro(pocket.monthly_margin)}
+                            </strong>
+                          </div>
+                          <div>
+                            <small>Saldo ao final</small>
+                            <strong
+                              className={Number(pocket.closing_balance) < 0 ? 'negative' : ''}
+                            >
+                              {euro(pocket.closing_balance)}
+                            </strong>
+                          </div>
+                        </div>
+                        {Number(pocket.upfront_gap) > 0 && (
+                          <p className="scenario-pocket-warning">
+                            Faltam {euro(pocket.upfront_gap)} nesta caixa para os pagamentos
+                            imediatos.
+                          </p>
+                        )}
+                        {pocket.first_deficit_month && (
+                          <p className="scenario-pocket-warning">
+                            O saldo fica negativo a partir de {pocket.first_deficit_month}.
+                          </p>
+                        )}
+                        {pocket.items?.some((item: Row) => item.is_baseline) && (
+                          <p className="scenario-baseline-note">
+                            A estimativa inicial entra no total. Reduza-a conforme distribuir os
+                            custos em itens detalhados.
+                          </p>
+                        )}
+                        <div className="scenario-pocket-items">
+                          {!pocket.items?.length ? (
+                            <p className="scenario-items-empty">
+                              Esta caixa ainda não tem movimentações projetadas.
+                            </p>
+                          ) : (
+                            pocket.items.map((item: Row) => (
+                              <div className={`scenario-item ${item.kind}`} key={item.id}>
+                                {item.kind === 'income' ? (
+                                  <TrendingUp size={14} />
+                                ) : (
+                                  <TrendingDown size={14} />
+                                )}
+                                <div>
+                                  <strong>{item.name}</strong>
+                                  <span>
+                                    {item.cadence === 'once'
+                                      ? item.due_on
+                                        ? `Uma vez · ${dateLabel(item.due_on)}`
+                                        : 'Uma vez · disponível agora'
+                                      : Number(item.interval_months) === 1
+                                        ? 'Todo mês'
+                                        : `A cada ${item.interval_months} meses`}
+                                    {item.notes ? ` · ${item.notes}` : ''}
+                                  </span>
+                                </div>
+                                <div className="scenario-item-value">
+                                  <strong>{euro(item.amount)}</strong>
+                                  {item.cadence === 'recurring' && (
+                                    <small>{euro(item.projected_total)} no período</small>
+                                  )}
+                                </div>
+                                <button
+                                  className="icon-button"
+                                  aria-label={`Editar ${item.name}`}
+                                  onClick={() =>
+                                    open(futurePlanItemForm(plan.id, item.kind, pockets, item))
+                                  }
+                                >
+                                  <Pencil size={14} />
+                                </button>
+                                <button
+                                  className="icon-button"
+                                  aria-label={`Excluir ${item.name}`}
+                                  onClick={() =>
+                                    open(
+                                      zeroForm(
+                                        'Excluir item',
+                                        `/future-plans/${plan.id}/items/${item.id}`,
+                                        'DELETE',
+                                        'O item será retirado apenas deste cenário.',
+                                      ),
+                                    )
+                                  }
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                        <footer>
+                          <button
+                            className="text-link"
+                            onClick={() =>
+                              open(
+                                futurePlanItemForm(
+                                  plan.id,
+                                  'income',
+                                  pockets,
+                                  undefined,
+                                  pocket.id,
+                                ),
+                              )
+                            }
+                          >
+                            <TrendingUp size={14} /> Receita
+                          </button>
+                          <button
+                            className="text-link"
+                            onClick={() =>
+                              open(
+                                futurePlanItemForm(
+                                  plan.id,
+                                  'expense',
+                                  pockets,
+                                  undefined,
+                                  pocket.id,
+                                ),
+                              )
+                            }
+                          >
+                            <TrendingDown size={14} /> Despesa
+                          </button>
+                        </footer>
+                      </article>
+                    ))}
+                  </div>
+                </section>
+                <div className="scenario-analysis">
+                  <div>
+                    <small>Entradas mensais</small>
+                    <strong>{euro(plan.monthly_income)}</strong>
+                  </div>
+                  <div>
+                    <small>Saídas mensais</small>
+                    <strong>{euro(plan.monthly_expenses)}</strong>
+                  </div>
+                  <div>
+                    <small>Margem após financiar o plano</small>
+                    <strong className={Number(plan.monthly_margin) < 0 ? 'negative' : ''}>
+                      {euro(plan.monthly_margin)}
+                    </strong>
+                  </div>
+                  <p>
+                    {Number(plan.monthly_margin) >= 0
+                      ? `As receitas mensais cobrem as despesas mensais e deixam ${euro(plan.monthly_margin)} livres. Pagamentos pontuais e periódicos são verificados separadamente nas caixas.`
+                      : `As despesas mensais superam as receitas em ${euro(Math.abs(Number(plan.monthly_margin)))}. Ajuste o fluxo recorrente antes de assumir o plano.`}
+                  </p>
+                </div>
+                {!!plan.timeline?.length && (
+                  <details className="scenario-projection">
+                    <summary>Ver projeção completa mês a mês</summary>
+                    <div className="scenario-projection-table">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Mês</th>
+                            <th>Entradas</th>
+                            <th>Saídas</th>
+                            <th>Saldo das caixas</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {plan.timeline.map((period: Row) => (
+                            <tr key={period.month}>
+                              <td>
+                                {new Date(`${period.month}-02T12:00:00`).toLocaleDateString(
+                                  'pt-PT',
+                                  { month: 'long', year: 'numeric' },
+                                )}
+                              </td>
+                              <td>{euro(period.income)}</td>
+                              <td>{euro(period.expense)}</td>
+                              <td className={Number(period.balance) < 0 ? 'negative' : ''}>
+                                {euro(period.balance)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </details>
+                )}
+                <div className="future-actions">
+                  <button className="text-link" onClick={() => open(futurePlanForm(plan))}>
+                    <Pencil size={14} /> Editar dados gerais
+                  </button>
+                  <button
+                    className="icon-button"
+                    aria-label={`Excluir plano ${plan.name}`}
+                    title="Excluir plano"
+                    onClick={() =>
+                      open(
+                        zeroForm(
+                          'Excluir plano definitivamente',
+                          `/future-plans/${plan.id}`,
+                          'DELETE',
+                          'O plano e todas as receitas e despesas deste cenário serão apagados. Suas contas, saldos e movimentações reais não serão alterados.',
+                        ),
+                      )
+                    }
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                  {plan.status === 'completed' && <span className="badge success">Realizado</span>}
+                  {plan.status === 'archived' && <span className="badge">Arquivado</span>}
+                  {plan.status === 'active' ? (
+                    <>
+                      <button
+                        className="icon-button"
+                        aria-label={`Marcar ${plan.name} como realizado`}
+                        title="Marcar como realizado"
+                        onClick={() =>
+                          open(
+                            zeroForm(
+                              'Concluir plano',
+                              `/future-plans/${plan.id}`,
+                              'PATCH',
+                              'Isso apenas encerra este cenário; nenhuma movimentação será criada.',
+                              () => ({ status: 'completed' }),
+                            ),
+                          )
+                        }
+                      >
+                        <CircleCheckBig size={17} />
+                      </button>
+                      <button
+                        className="icon-button"
+                        aria-label={`Arquivar plano ${plan.name}`}
+                        title="Arquivar"
+                        onClick={() =>
+                          open(
+                            zeroForm(
+                              'Arquivar plano',
+                              `/future-plans/${plan.id}`,
+                              'PATCH',
+                              'O plano ficará guardado e continuará sem alterar suas finanças.',
+                              () => ({ status: 'archived' }),
+                            ),
+                          )
+                        }
+                      >
+                        <Archive size={17} />
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      className="icon-button"
+                      aria-label={`Reativar plano ${plan.name}`}
+                      title="Reativar"
+                      onClick={() =>
+                        open(
+                          zeroForm(
+                            'Reativar plano',
+                            `/future-plans/${plan.id}`,
+                            'PATCH',
+                            'O cenário volta para seus horizontes ativos.',
+                            () => ({ status: 'active' }),
+                          ),
+                        )
+                      }
+                    >
+                      <ArchiveRestore size={17} />
+                    </button>
+                  )}
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      )}
+    </>
+  );
+}
+
 export function Recurrences({ month, setMonth, open, accounts, categories }: Props) {
   const query = useData(`/occurrences?month=${month}`),
     rules = useData('/recurrences');
@@ -807,13 +1474,13 @@ export function Recurrences({ month, setMonth, open, accounts, categories }: Pro
       <Panel title="Ocorrências do mês" description="Valores previstos para o período selecionado">
         {!query.data?.length ? (
           <Empty title="Sem previsões neste mês">
-            Cadastre despesas, receitas ou aportes que se repetem mensalmente.
+            Cadastre despesas, receitas ou aportes e escolha de quantos em quantos meses se repetem.
           </Empty>
         ) : (
           <div className="occurrence-list">
             {occurrenceRows.map((o, index) => (
               <Fragment key={o.id}>
-                {(index === 0 || occurrenceRows[index - 1].kind === 'income') && (
+                {(index === 0 || occurrenceRows[index - 1].kind !== o.kind) && (
                   <h3 className="recurrence-group-title">
                     {o.kind === 'income'
                       ? 'Entradas previstas'
@@ -987,7 +1654,7 @@ export function Recurrences({ month, setMonth, open, accounts, categories }: Pro
           <div className="occurrence-list">
             {ruleRows.map((r, index) => (
               <Fragment key={r.id}>
-                {(index === 0 || ruleRows[index - 1].kind === 'income') && (
+                {(index === 0 || ruleRows[index - 1].kind !== r.kind) && (
                   <h3 className="recurrence-group-title">
                     {r.kind === 'income'
                       ? 'Entradas recorrentes'
@@ -998,7 +1665,8 @@ export function Recurrences({ month, setMonth, open, accounts, categories }: Pro
                   <div className="grow">
                     <b>{r.description}</b>
                     <small>
-                      Dia {r.expected_day} · {euro(r.amount)} · {r.active ? 'Ativa' : 'Inativa'}
+                      Dia {r.expected_day} · {cadenceLabel(Number(r.interval_months || 1))} ·{' '}
+                      {euro(r.amount)} · {r.active ? 'Ativa' : 'Inativa'}
                     </small>
                   </div>
                   <button
@@ -1014,8 +1682,21 @@ export function Recurrences({ month, setMonth, open, accounts, categories }: Pro
                         fields: [
                           { name: 'description', label: 'Descrição', value: r.description },
                           { name: 'amount', label: 'Valor previsto (€)', value: r.amount },
+                          {
+                            name: 'interval_months',
+                            label: 'Repetir',
+                            value: r.interval_months || 1,
+                            options: Array.from({ length: 24 }, (_, index) => ({
+                              value: String(index + 1),
+                              label: cadenceLabel(index + 1),
+                            })),
+                          },
                         ],
-                        map: (d) => ({ ...d, amount: decimal(d.amount) }),
+                        map: (d) => ({
+                          ...d,
+                          amount: decimal(d.amount),
+                          interval_months: Number(d.interval_months),
+                        }),
                       })
                     }
                   >
@@ -1091,7 +1772,7 @@ export function Cards({ open, openPurchase, accounts, categories }: Props) {
         </Panel>
       ) : cards.data?.length ? (
         <>
-          <div className="cards-grid compact">
+          <div className="cards-grid compact card-wallets">
             {cards.data?.map((c) => (
               <article className="credit-card" key={c.id}>
                 <div className="split">

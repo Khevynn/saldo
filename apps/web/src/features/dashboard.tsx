@@ -37,6 +37,10 @@ export function Dashboard({
     expense: Number(p.expense),
     balance: Number(p.balance),
   }));
+  const largestCategory = Math.max(
+    0,
+    ...r.categories.map((category: Row) => Number(category.amount)),
+  );
   return (
     <>
       <PageHeader
@@ -216,21 +220,31 @@ export function Dashboard({
           <Panel title="Para onde o dinheiro foi" description="Despesas por categoria">
             {r.categories.length ? (
               <div className="category-list">
-                {r.categories.slice(0, 6).map((c: Row) => (
-                  <div key={c.name}>
-                    <div className="split">
-                      <span>{c.name}</span>
-                      <b>{euro(c.amount)}</b>
+                {r.categories.slice(0, 6).map((c: Row) => {
+                  const budget = r.budgets.find(
+                      (item: Row) =>
+                        item.category_id === c.category_id || item.name === c.name,
+                    ),
+                    exceeded =
+                      budget?.budget !== null &&
+                      budget?.budget !== undefined &&
+                      Number(c.amount) > Number(budget.budget);
+                  return (
+                    <div key={c.category_id || c.name}>
+                      <div className="split">
+                        <span>{c.name}</span>
+                        <b className={exceeded ? 'danger' : ''}>{euro(c.amount)}</b>
+                      </div>
+                      <div className={`category-bar${exceeded ? ' danger' : ''}`}>
+                        <span
+                          style={{
+                            width: `${largestCategory > 0 ? (Number(c.amount) / largestCategory) * 100 : 0}%`,
+                          }}
+                        />
+                      </div>
                     </div>
-                    <div className="category-bar">
-                      <span
-                        style={{
-                          width: `${Number(r.expense) > 0 ? (Number(c.amount) / Number(r.expense)) * 100 : 0}%`,
-                        }}
-                      />
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <Empty title="Nenhuma despesa neste mês">
@@ -318,7 +332,7 @@ export function Dashboard({
               .map((b: Row) => (
                 <div className="list-row" key={b.category_id}>
                   <span className="grow">{b.name}</span>
-                  <b>
+                  <b className={Number(b.spent) > Number(b.budget) ? 'danger' : ''}>
                     {euro(b.spent)} / {euro(b.budget)}
                   </b>
                 </div>

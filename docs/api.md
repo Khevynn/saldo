@@ -33,8 +33,8 @@ Campos incompatíveis devem ser ausentes/null. Datas reais futuras são rejeitad
 
 ## Recorrências
 
-- `GET/POST /recurrences`: criação com descrição, tipo, conta, categoria (ou destino para transferências), valor, dia esperado, início e fim opcional.
-- `PATCH /recurrences/:id`: `active`, `description` e/ou `amount`. Alterações de valor/descrição alcançam pendências de hoje em diante.
+- `GET/POST /recurrences`: criação com descrição, tipo, conta, categoria (ou destino para transferências), valor, dia esperado, intervalo de 1 a 24 meses, início e fim opcional.
+- `PATCH /recurrences/:id`: `active`, `description`, `amount` e/ou `interval_months`. Alterações alcançam somente previsões futuras; o histórico confirmado permanece intacto.
 - `GET /occurrences?month=YYYY-MM`: gera previsões idempotentemente e lista o mês, sem alterar saldos.
 - `PATCH /occurrences/:id`: `state` (`pending`/`skipped`), `description` e/ou `amount`. Não altera ocorrência confirmada.
 - `POST /occurrences/:id/confirm`: exige `Idempotency-Key`; corpo `account_id`, `amount`, `occurred_on` reais.
@@ -46,6 +46,13 @@ Campos incompatíveis devem ser ausentes/null. Datas reais futuras são rejeitad
 - `PUT /budgets/:month`: salva `category_id`, `amount` e `scope`. `future` cria uma nova versão válida deste mês em diante; `month` cria uma exceção somente para o mês indicado.
 - `DELETE /budgets/:month/:categoryId/override`: remove a exceção mensal e volta a usar o orçamento padrão. Criação, substituição, encerramento e remoção são auditados.
 - `GET/POST /goals`: nome, conta reservada, objetivo, aporte planejado e prazo opcional. Consultas retornam saldo, restante, progresso e estimativa de meses calculados.
+- `GET/POST /future-plans`: cenários futuros isolados com tipo, data desejada, estimativa inicial, valor reservado e notas. A consulta agrega caixas e itens, simula o saldo mês a mês e calcula desembolso imediato, fluxo mensal, compromissos periódicos, primeiro déficit e viabilidade.
+- `PATCH /future-plans/:id`: ajusta os dados gerais ou muda o estado entre ativo, realizado e arquivado.
+- `DELETE /future-plans/:id`: exclui definitivamente o cenário e seus itens, sem alterar o fluxo financeiro real.
+- `POST /future-plans/:id/items`: adiciona uma receita ou gasto pontual ou recorrente, com intervalo de 1 a 60 meses e caixa de origem/destino.
+- `PATCH/DELETE /future-plans/:planId/items/:itemId`: ajusta ou remove uma hipótese do cenário. Planos e itens nunca geram movimentações automaticamente.
+- `POST /future-plans/:id/pockets`: cria uma caixa de benefício ou reserva separada do Principal.
+- `PATCH/DELETE /future-plans/:planId/pockets/:pocketId`: ajusta ou remove uma caixa vazia. A caixa Principal não pode ser removida.
 - `PATCH /goals/:id`: nome, objetivo, aporte, prazo ou arquivamento. A conta vinculada é preservada.
 
 ## Cartões

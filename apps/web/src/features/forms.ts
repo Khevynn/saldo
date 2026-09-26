@@ -25,6 +25,7 @@ const value = (name: string, label: string, initial = ''): Field => ({
   name,
   label,
   value: initial,
+  currency: true,
   hint: 'EUR · exemplo: 125,50',
 });
 export const decimal = (text: string) => text.trim().replace(',', '.');
@@ -159,6 +160,16 @@ export const recurrenceForm = (accounts: Row[], categories: Row[], kind: string)
     value('amount', 'Valor esperado'),
     { name: 'expected_day', label: 'Dia esperado', type: 'number', min: 1, max: 31, value: 5 },
     {
+      name: 'interval_months',
+      label: 'Repetir',
+      value: 1,
+      options: Array.from({ length: 24 }, (_, index) => ({
+        value: String(index + 1),
+        label:
+          index === 0 ? 'Todo mês' : index === 1 ? 'A cada 2 meses' : `A cada ${index + 1} meses`,
+      })),
+    },
+    {
       name: 'account_id',
       label: kind === 'transfer' ? 'Conta de origem' : 'Conta',
       options: accountOptions(accounts),
@@ -189,6 +200,7 @@ export const recurrenceForm = (accounts: Row[], categories: Row[], kind: string)
     kind,
     amount: decimal(d.amount),
     expected_day: Number(d.expected_day),
+    interval_months: Number(d.interval_months),
     ends_on: d.ends_on || null,
   }),
 });
@@ -228,6 +240,158 @@ export const goalForm = (accounts: Row[]): FormSpec => ({
     target: decimal(d.target),
     monthly_contribution: decimal(d.monthly_contribution),
     deadline: d.deadline || null,
+  }),
+});
+export const futurePlanForm = (existing?: Row): FormSpec => ({
+  title: existing ? 'Editar plano futuro' : 'Novo plano futuro',
+  description:
+    'Este cenário fica fora das suas contas, saldos e orçamento. Use-o para explorar sem comprometer o presente.',
+  path: existing ? `/future-plans/${existing.id}` : '/future-plans',
+  method: existing ? 'PATCH' : 'POST',
+  fields: [
+    { name: 'name', label: 'Nome do plano', type: 'wide', value: existing?.name || '' },
+    {
+      name: 'theme',
+      label: 'Tipo',
+      value: existing?.theme || 'travel',
+      options: [
+        { value: 'move', label: 'Mudança' },
+        { value: 'travel', label: 'Viagem' },
+        { value: 'education', label: 'Estudo' },
+        { value: 'purchase', label: 'Compra' },
+        { value: 'project', label: 'Projeto' },
+        { value: 'other', label: 'Outro' },
+      ],
+    },
+    {
+      name: 'target_date',
+      label: 'Quando gostaria de realizar?',
+      type: 'date',
+      value: existing?.target_date || currentDate(),
+    },
+    value(
+      'estimated_cost',
+      existing ? 'Custos ainda não detalhados (€)' : 'Estimativa inicial do custo (€)',
+      existing?.initial_estimate || existing?.estimated_cost || '',
+    ),
+    value(
+      'reserved_amount',
+      'Quanto já está disponível no Principal (€)',
+      existing?.principal_balance || existing?.reserved_amount || '0',
+    ),
+    {
+      name: 'notes',
+      label: 'Notas (opcional)',
+      type: 'textarea',
+      required: false,
+      value: existing?.notes || '',
+    },
+  ],
+  map: (d) => ({
+    ...d,
+    estimated_cost: decimal(d.estimated_cost),
+    reserved_amount: decimal(d.reserved_amount),
+    notes: d.notes || null,
+  }),
+});
+export const futurePlanItemForm = (
+  planId: string,
+  kind: 'income' | 'expense',
+  pockets: Row[],
+  existing?: Row,
+  preferredPocketId?: string,
+): FormSpec => ({
+  title: existing
+    ? `Editar ${kind === 'income' ? 'receita' : 'gasto'}`
+    : `Novo ${kind === 'income' ? 'recurso' : 'gasto'} do plano`,
+  description:
+    kind === 'income'
+      ? 'Inclua salário, rendimento extra ou qualquer recurso disponível apenas neste cenário.'
+      : 'Detalhe custos pontuais e despesas mensais para tornar a projeção realista.',
+  path: existing ? `/future-plans/${planId}/items/${existing.id}` : `/future-plans/${planId}/items`,
+  method: existing ? 'PATCH' : 'POST',
+  fields: [
+    {
+      name: 'name',
+      label: kind === 'income' ? 'Nome da receita ou recurso' : 'Nome do gasto',
+      type: 'wide',
+      value: existing?.name || '',
+    },
+    value('amount', 'Valor (€)', existing?.amount || ''),
+    {
+      name: 'schedule',
+      label: 'Frequência',
+      value: existing?.cadence === 'recurring' ? String(existing.interval_months || 1) : 'once',
+      options: [
+        { value: 'once', label: 'Uma única vez' },
+        { value: '1', label: 'Todo mês' },
+        ...Array.from({ length: 59 }, (_, index) => ({
+          value: String(index + 2),
+          label: `A cada ${index + 2} meses`,
+        })),
+      ],
+    },
+    {
+      name: 'pocket_id',
+      label: kind === 'income' ? 'Caixa que recebe' : 'Caixa que paga',
+      value: existing?.pocket_id || preferredPocketId || pockets[0]?.id || '',
+      options: pockets.map((pocket) => ({ value: pocket.id, label: pocket.name })),
+    },
+    {
+      name: 'due_on',
+      label: 'Data prevista (opcional)',
+      type: 'date',
+      required: false,
+      value: existing?.due_on || '',
+    },
+    {
+      name: 'notes',
+      label: 'Observação (opcional)',
+      type: 'textarea',
+      required: false,
+      value: existing?.notes || '',
+    },
+  ],
+  map: (d) => ({
+    kind,
+    name: d.name,
+    amount: decimal(d.amount),
+    cadence: d.schedule === 'once' ? 'once' : 'recurring',
+    interval_months: d.schedule === 'once' ? 1 : Number(d.schedule),
+    pocket_id: d.pocket_id,
+    due_on: d.due_on || null,
+    notes: d.notes || null,
+  }),
+});
+export const futurePlanPocketForm = (planId: string, existing?: Row): FormSpec => ({
+  title: existing ? 'Editar caixa do cenário' : 'Nova caixa do cenário',
+  description:
+    'Caixas mantêm recursos separados. Use Benefício para valores como alimentação e Reserva para dinheiro com destino específico.',
+  path: existing
+    ? `/future-plans/${planId}/pockets/${existing.id}`
+    : `/future-plans/${planId}/pockets`,
+  method: existing ? 'PATCH' : 'POST',
+  fields: [
+    { name: 'name', label: 'Nome da caixa', type: 'wide', value: existing?.name || '' },
+    ...(existing?.kind === 'principal'
+      ? []
+      : [
+          {
+            name: 'kind',
+            label: 'Tipo de caixa',
+            value: existing?.kind || 'benefit',
+            options: [
+              { value: 'benefit', label: 'Benefício de uso específico' },
+              { value: 'reserve', label: 'Reserva para uma finalidade' },
+            ],
+          } as Field,
+        ]),
+    value('opening_balance', 'Quanto já existe nesta caixa (€)', existing?.opening_balance || '0'),
+  ],
+  map: (d) => ({
+    name: d.name,
+    ...(existing?.kind === 'principal' ? {} : { kind: d.kind }),
+    opening_balance: decimal(d.opening_balance),
   }),
 });
 export const cardForm = (): FormSpec => ({

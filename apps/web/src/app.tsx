@@ -12,6 +12,7 @@ import {
   Tags,
   Menu,
   ShieldCheck,
+  Telescope,
 } from 'lucide-react';
 import { FormDialog, LoadState, type FormSpec } from './components/ui';
 import { useData, currentDate } from './lib/api';
@@ -23,6 +24,7 @@ import {
   Cards,
   Categories,
   Goals,
+  FuturePlans,
   Recurrences,
   Transactions,
 } from './features/pages';
@@ -34,6 +36,7 @@ const navigation = [
   ['/cards', 'Cartões', CreditCard],
   ['/budgets', 'Orçamento', PieChart],
   ['/goals', 'Metas', Target],
+  ['/future-plans', 'Planos futuros', Telescope],
   ['/recurrences', 'Recorrentes', Repeat2],
   ['/categories', 'Categorias', Tags],
 ] as const;
@@ -60,8 +63,9 @@ export function App() {
         </NavLink>
         <div className="workspace-label">ESPAÇO PESSOAL</div>
         <nav aria-label="Navegação principal">
-          {navigation.map(([to, label, Icon]) => (
+          {navigation.map(([to, label, Icon], index) => (
             <NavLink key={to} to={to} end={to === '/'} onClick={() => setMenu(false)}>
+              <small className="nav-index">{String(index + 1).padStart(2, '0')}</small>
               <Icon size={19} />
               <span>{label}</span>
             </NavLink>
@@ -91,7 +95,10 @@ export function App() {
           >
             <Menu />
           </button>
-          <span className="topbar-label">FINANÇAS PESSOAIS</span>
+          <span className="topbar-label">
+            <b>SALDO</b>
+            <i>/</i> CADERNO FINANCEIRO
+          </span>
           <div className="topbar-actions">
             <UserButton />
           </div>
@@ -108,6 +115,8 @@ export function App() {
               <Route path="/transactions" element={<Transactions key={month} {...props} />} />
               <Route path="/budgets" element={<Budgets {...props} />} />
               <Route path="/goals" element={<Goals {...props} />} />
+              <Route path="/future-plans" element={<FuturePlans {...props} />} />
+              <Route path="/future-plans/:planId" element={<FuturePlans {...props} />} />
               <Route path="/recurrences" element={<Recurrences {...props} />} />
               <Route path="/cards" element={<Cards {...props} />} />
               <Route path="/categories" element={<Categories {...props} />} />

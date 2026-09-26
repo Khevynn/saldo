@@ -56,6 +56,8 @@ Editar descrição/valor da regra afeta ocorrências pendentes de hoje em diante
 
 `budget_rules` mantém versões do orçamento padrão por categoria, com mês inicial e final. Uma mudança “deste mês em diante” encerra a versão anterior e cria outra; regras futuras substituídas também permanecem registradas na auditoria. `budgets` contém somente exceções de um mês e tem precedência sobre a regra vigente. Registros mensais anteriores à migração continuam como exceções, preservando o histórico.
 
+`future_plans`, `future_plan_pockets` e `future_plan_items` são deliberadamente independentes de contas, transações, orçamento e relatórios reais. Cada cenário possui uma caixa Principal e pode receber caixas de benefício ou reserva. Cada receita ou gasto hipotético pertence a uma caixa e pode ocorrer uma vez ou repetir a cada 1–60 meses. O domínio simula cada caixa mês a mês, separa desembolso imediato, fluxo mensal e contas periódicas, detecta o primeiro déficit e calcula o saldo final e a viabilidade. Concluir ou arquivar um plano não cria lançamentos; a passagem de hipótese para realidade continua sendo uma ação explícita no ledger.
+
 Realizado considera `cash_effects`. Previsto considera somente ocorrências pendentes. Comprometido com cartão considera parcelas de faturas não pagas pelo mês de vencimento. Confirmar um pagamento remove a respectiva pendência da soma, evitando duplicação.
 
 Meta lê o saldo da conta reservada. Restante, progresso e quantidade estimada de meses são calculados com decimais. Estimativa pressupõe aporte constante, sem saques/rendimentos.

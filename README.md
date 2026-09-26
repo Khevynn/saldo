@@ -8,7 +8,8 @@ Aplicativo individual de finanças em EUR, com React/TypeScript, API REST NestJS
 - Receitas, despesas, transferências comuns e com perda.
 - Edição com controle de versão, exclusão lógica e auditoria.
 - Categorias individuais editáveis e arquiváveis.
-- Recorrências mensais, edição isolada ou das próximas previsões, confirmação com valor/data reais, ignorar/reabrir e vínculo com lançamento existente.
+- Recorrências configuráveis de 1 a 24 meses, edição isolada ou das próximas previsões, confirmação com valor/data reais, ignorar/reabrir e vínculo com lançamento existente.
+- Horizontes futuros para simular mudança, viagem, estudo, compra ou projeto sem alterar saldos, orçamento ou fluxo realizado.
 - Orçamento padrão contínuo por categoria, exceções mensais auditadas, realizado, previsto e parcelas pendentes.
 - Metas cujo progresso deriva do saldo do cofrinho.
 - Cartões, compras parceladas, faturas e pagamento integral.
@@ -163,7 +164,7 @@ As migrations SQL são a fonte do esquema; Drizzle executa consultas SQL paramet
 - Somente EUR e regime de caixa.
 - Cartão com pagamento integral, sem rotativo, juros automáticos ou pagamento parcial.
 - Transferências com valores recebidos menores ou iguais aos enviados; sem câmbio ou ganhos.
-- Recorrências mensais, sem confirmação automática e sem rateio de pagamentos parciais.
+- Recorrências entre 1 e 24 meses, sem confirmação automática e sem rateio de pagamentos parciais.
 - Datas de acompanhamento entre 2000 e 2100.
 - Um objetivo ativo por conta reservada.
 - Planejamento estratégico, integrações bancárias, investimentos e compartilhamento não estão incluídos.

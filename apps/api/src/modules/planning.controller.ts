@@ -24,6 +24,9 @@ import {
   occurrenceConfirm,
   parse,
   recurrenceInput,
+  futurePlanInput,
+  futurePlanItemInput,
+  futurePlanPocketInput,
   positiveMoney,
   date,
 } from '../common/validation';
@@ -60,8 +63,8 @@ export class PlanningController {
       }
       const [result] = await rows(
         db,
-        sql`INSERT INTO recurrences(user_id,description,kind,account_id,destination_id,category_id,amount,expected_day,starts_on,ends_on)
-        VALUES(${user},${d.description},${d.kind},${d.account_id},${d.destination_id || null},${d.category_id || null},${d.amount},${d.expected_day},${d.starts_on},${d.ends_on || null}) RETURNING *`,
+        sql`INSERT INTO recurrences(user_id,description,kind,account_id,destination_id,category_id,amount,expected_day,interval_months,starts_on,ends_on)
+        VALUES(${user},${d.description},${d.kind},${d.account_id},${d.destination_id || null},${d.category_id || null},${d.amount},${d.expected_day},${d.interval_months},${d.starts_on},${d.ends_on || null}) RETURNING *`,
       );
       await audit(db, user, 'recurrence', result.id, 'create', null, result);
       return result;
@@ -79,6 +82,7 @@ export class PlanningController {
           active: z.boolean().optional(),
           description: z.string().trim().min(1).max(100).optional(),
           amount: positiveMoney.optional(),
+          interval_months: z.number().int().min(1).max(24).optional(),
         })
         .strict(),
       input,
@@ -91,8 +95,12 @@ export class PlanningController {
       if (!before) throw new NotFoundException('Recorrência não encontrada.');
       const [result] = await rows(
         db,
-        sql`UPDATE recurrences SET active=${d.active ?? before.active},description=${d.description ?? before.description},amount=${d.amount ?? before.amount} WHERE user_id=${user} AND id=${recurrenceId} RETURNING *`,
+        sql`UPDATE recurrences SET active=${d.active ?? before.active},description=${d.description ?? before.description},amount=${d.amount ?? before.amount},interval_months=${d.interval_months ?? before.interval_months} WHERE user_id=${user} AND id=${recurrenceId} RETURNING *`,
       );
+      if (d.interval_months !== undefined && d.interval_months !== before.interval_months)
+        await db.execute(
+          sql`DELETE FROM occurrences WHERE user_id=${user} AND recurrence_id=${recurrenceId} AND state<>'confirmed' AND due_on>=${today()}::date`,
+        );
       if (d.amount !== undefined || d.description !== undefined)
         await db.execute(
           sql`UPDATE occurrences SET amount=${d.amount ?? before.amount},description=${d.description ?? before.description} WHERE user_id=${user} AND recurrence_id=${recurrenceId} AND state='pending' AND due_on>=${today()}::date`,
@@ -103,6 +111,266 @@ export class PlanningController {
         );
       await audit(db, user, 'recurrence', recurrenceId, 'update', before, result);
       return result;
+    });
+  }
+  @Get('future-plans') futurePlans(@UserId() user: string) {
+    return this.store.read(user, async (db) => {
+      const plans = await rows(
+        db,
+        sql`SELECT * FROM future_plans WHERE user_id=${user} ORDER BY CASE status WHEN 'active' THEN 0 WHEN 'completed' THEN 1 ELSE 2 END,target_date,name`,
+      );
+      const items = await rows(
+        db,
+        sql`SELECT * FROM future_plan_items WHERE user_id=${user} ORDER BY kind DESC,cadence,name`,
+      );
+      const pockets = await rows(
+        db,
+        sql`SELECT * FROM future_plan_pockets WHERE user_id=${user} ORDER BY CASE kind WHEN 'principal' THEN 0 WHEN 'benefit' THEN 1 ELSE 2 END,name`,
+      );
+      return plans.map((plan) =>
+        this.planning.projectFuturePlan(
+          plan,
+          items.filter((item) => item.plan_id === plan.id),
+          pockets.filter((pocket) => pocket.plan_id === plan.id),
+        ),
+      );
+    });
+  }
+  @Post('future-plans') createFuturePlan(@UserId() user: string, @Body() input: unknown) {
+    const d = parse(futurePlanInput, input);
+    return this.store.run(user, async (db) => {
+      const [result] = await rows(
+        db,
+        sql`INSERT INTO future_plans(user_id,name,theme,target_date,estimated_cost,reserved_amount,notes)
+          VALUES(${user},${d.name},${d.theme},${d.target_date},${d.estimated_cost},${d.reserved_amount},${d.notes || null}) RETURNING *`,
+      );
+      const [pocket] = await rows(
+        db,
+        sql`INSERT INTO future_plan_pockets(user_id,plan_id,name,kind,opening_balance)
+          VALUES(${user},${result.id},'Principal','principal',${d.reserved_amount}) RETURNING *`,
+      );
+      await db.execute(
+        sql`INSERT INTO future_plan_items(user_id,plan_id,pocket_id,kind,name,cadence,interval_months,amount,is_baseline)
+          VALUES(${user},${result.id},${pocket.id},'expense','Estimativa inicial','once',1,${d.estimated_cost},true)`,
+      );
+      await audit(db, user, 'future_plan', result.id, 'create', null, result);
+      return result;
+    });
+  }
+  @Patch('future-plans/:id') editFuturePlan(
+    @UserId() user: string,
+    @Param('id') rawId: string,
+    @Body() input: unknown,
+  ) {
+    const planId = parse(id, rawId);
+    const d = parse(
+      futurePlanInput
+        .partial()
+        .extend({ status: z.enum(['active', 'completed', 'archived']).optional() })
+        .strict(),
+      input,
+    );
+    return this.store.run(user, async (db) => {
+      const [before] = await rows(
+        db,
+        sql`SELECT * FROM future_plans WHERE user_id=${user} AND id=${planId}`,
+      );
+      if (!before) throw new NotFoundException('Plano futuro não encontrado.');
+      const [result] = await rows(
+        db,
+        sql`UPDATE future_plans SET
+          name=${d.name ?? before.name},theme=${d.theme ?? before.theme},target_date=${d.target_date ?? before.target_date},
+          estimated_cost=${d.estimated_cost ?? before.estimated_cost},reserved_amount=${d.reserved_amount ?? before.reserved_amount},
+          notes=${d.notes === undefined ? before.notes : d.notes || null},status=${d.status ?? before.status},updated_at=now()
+          WHERE user_id=${user} AND id=${planId} RETURNING *`,
+      );
+      if (d.estimated_cost !== undefined)
+        await db.execute(
+          sql`UPDATE future_plan_items SET amount=${d.estimated_cost},updated_at=now()
+            WHERE user_id=${user} AND plan_id=${planId} AND is_baseline`,
+        );
+      if (d.reserved_amount !== undefined)
+        await db.execute(
+          sql`UPDATE future_plan_pockets SET opening_balance=${d.reserved_amount},updated_at=now()
+            WHERE user_id=${user} AND plan_id=${planId} AND kind='principal'`,
+        );
+      await audit(db, user, 'future_plan', planId, 'update', before, result);
+      return result;
+    });
+  }
+  @Delete('future-plans/:id') deleteFuturePlan(@UserId() user: string, @Param('id') rawId: string) {
+    const planId = parse(id, rawId);
+    return this.store.run(user, async (db) => {
+      const [before] = await rows(
+        db,
+        sql`DELETE FROM future_plans WHERE user_id=${user} AND id=${planId} RETURNING *`,
+      );
+      if (!before) throw new NotFoundException('Plano futuro não encontrado.');
+      await audit(db, user, 'future_plan', planId, 'delete', before, null);
+      return { deleted: true };
+    });
+  }
+  @Post('future-plans/:id/items') createFuturePlanItem(
+    @UserId() user: string,
+    @Param('id') rawId: string,
+    @Body() input: unknown,
+  ) {
+    const planId = parse(id, rawId);
+    const d = parse(futurePlanItemInput, input);
+    return this.store.run(user, async (db) => {
+      const [plan] = await rows(
+        db,
+        sql`SELECT id FROM future_plans WHERE user_id=${user} AND id=${planId}`,
+      );
+      if (!plan) throw new NotFoundException('Plano futuro não encontrado.');
+      const [pocket] = await rows(
+        db,
+        d.pocket_id
+          ? sql`SELECT * FROM future_plan_pockets WHERE user_id=${user} AND plan_id=${planId} AND id=${d.pocket_id}`
+          : sql`SELECT * FROM future_plan_pockets WHERE user_id=${user} AND plan_id=${planId} AND kind='principal'`,
+      );
+      if (!pocket) throw new BadRequestException('Caixa do cenário não encontrada.');
+      const [result] = await rows(
+        db,
+        sql`INSERT INTO future_plan_items(user_id,plan_id,pocket_id,kind,name,cadence,interval_months,amount,due_on,notes)
+          VALUES(${user},${planId},${pocket.id},${d.kind},${d.name},${d.cadence},${d.interval_months},${d.amount},${d.due_on || null},${d.notes || null}) RETURNING *`,
+      );
+      await audit(db, user, 'future_plan_item', result.id, 'create', null, result);
+      return result;
+    });
+  }
+  @Patch('future-plans/:planId/items/:itemId') editFuturePlanItem(
+    @UserId() user: string,
+    @Param('planId') rawPlanId: string,
+    @Param('itemId') rawItemId: string,
+    @Body() input: unknown,
+  ) {
+    const planId = parse(id, rawPlanId);
+    const itemId = parse(id, rawItemId);
+    const d = parse(futurePlanItemInput.partial().strict(), input);
+    return this.store.run(user, async (db) => {
+      const [before] = await rows(
+        db,
+        sql`SELECT * FROM future_plan_items WHERE user_id=${user} AND plan_id=${planId} AND id=${itemId}`,
+      );
+      if (!before) throw new NotFoundException('Item do plano não encontrado.');
+      const nextPocketId = d.pocket_id ?? before.pocket_id;
+      const [pocket] = await rows(
+        db,
+        sql`SELECT id FROM future_plan_pockets WHERE user_id=${user} AND plan_id=${planId} AND id=${nextPocketId}`,
+      );
+      if (!pocket) throw new BadRequestException('Caixa do cenário não encontrada.');
+      const [result] = await rows(
+        db,
+        sql`UPDATE future_plan_items SET kind=${d.kind ?? before.kind},name=${d.name ?? before.name},
+          cadence=${d.cadence ?? before.cadence},interval_months=${d.interval_months ?? before.interval_months},
+          pocket_id=${nextPocketId},amount=${d.amount ?? before.amount},
+          due_on=${d.due_on === undefined ? before.due_on : d.due_on || null},
+          notes=${d.notes === undefined ? before.notes : d.notes || null},updated_at=now()
+          WHERE user_id=${user} AND plan_id=${planId} AND id=${itemId} RETURNING *`,
+      );
+      await audit(db, user, 'future_plan_item', itemId, 'update', before, result);
+      return result;
+    });
+  }
+  @Delete('future-plans/:planId/items/:itemId') deleteFuturePlanItem(
+    @UserId() user: string,
+    @Param('planId') rawPlanId: string,
+    @Param('itemId') rawItemId: string,
+  ) {
+    const planId = parse(id, rawPlanId);
+    const itemId = parse(id, rawItemId);
+    return this.store.run(user, async (db) => {
+      const [before] = await rows(
+        db,
+        sql`DELETE FROM future_plan_items WHERE user_id=${user} AND plan_id=${planId} AND id=${itemId} RETURNING *`,
+      );
+      if (!before) throw new NotFoundException('Item do plano não encontrado.');
+      await audit(db, user, 'future_plan_item', itemId, 'delete', before, null);
+      return { deleted: true };
+    });
+  }
+  @Post('future-plans/:id/pockets') createFuturePlanPocket(
+    @UserId() user: string,
+    @Param('id') rawId: string,
+    @Body() input: unknown,
+  ) {
+    const planId = parse(id, rawId);
+    const d = parse(futurePlanPocketInput, input);
+    return this.store.run(user, async (db) => {
+      const [plan] = await rows(
+        db,
+        sql`SELECT id FROM future_plans WHERE user_id=${user} AND id=${planId}`,
+      );
+      if (!plan) throw new NotFoundException('Plano futuro não encontrado.');
+      const [result] = await rows(
+        db,
+        sql`INSERT INTO future_plan_pockets(user_id,plan_id,name,kind,opening_balance)
+          VALUES(${user},${planId},${d.name},${d.kind},${d.opening_balance}) RETURNING *`,
+      );
+      await audit(db, user, 'future_plan_pocket', result.id, 'create', null, result);
+      return result;
+    });
+  }
+  @Patch('future-plans/:planId/pockets/:pocketId') editFuturePlanPocket(
+    @UserId() user: string,
+    @Param('planId') rawPlanId: string,
+    @Param('pocketId') rawPocketId: string,
+    @Body() input: unknown,
+  ) {
+    const planId = parse(id, rawPlanId);
+    const pocketId = parse(id, rawPocketId);
+    const d = parse(futurePlanPocketInput.partial().strict(), input);
+    return this.store.run(user, async (db) => {
+      const [before] = await rows(
+        db,
+        sql`SELECT * FROM future_plan_pockets WHERE user_id=${user} AND plan_id=${planId} AND id=${pocketId}`,
+      );
+      if (!before) throw new NotFoundException('Caixa do cenário não encontrada.');
+      const [result] = await rows(
+        db,
+        sql`UPDATE future_plan_pockets SET name=${d.name ?? before.name},
+          kind=${before.kind === 'principal' ? 'principal' : (d.kind ?? before.kind)},
+          opening_balance=${d.opening_balance ?? before.opening_balance},updated_at=now()
+          WHERE user_id=${user} AND plan_id=${planId} AND id=${pocketId} RETURNING *`,
+      );
+      if (before.kind === 'principal')
+        await db.execute(
+          sql`UPDATE future_plans SET reserved_amount=${d.opening_balance ?? before.opening_balance},updated_at=now()
+            WHERE user_id=${user} AND id=${planId}`,
+        );
+      await audit(db, user, 'future_plan_pocket', pocketId, 'update', before, result);
+      return result;
+    });
+  }
+  @Delete('future-plans/:planId/pockets/:pocketId') deleteFuturePlanPocket(
+    @UserId() user: string,
+    @Param('planId') rawPlanId: string,
+    @Param('pocketId') rawPocketId: string,
+  ) {
+    const planId = parse(id, rawPlanId);
+    const pocketId = parse(id, rawPocketId);
+    return this.store.run(user, async (db) => {
+      const [before] = await rows(
+        db,
+        sql`SELECT * FROM future_plan_pockets WHERE user_id=${user} AND plan_id=${planId} AND id=${pocketId}`,
+      );
+      if (!before) throw new NotFoundException('Caixa do cenário não encontrada.');
+      if (before.kind === 'principal')
+        throw new BadRequestException(
+          'A caixa principal faz parte do plano e não pode ser excluída.',
+        );
+      const [usage] = await rows<{ count: string }>(
+        db,
+        sql`SELECT count(*)::text AS count FROM future_plan_items WHERE user_id=${user} AND plan_id=${planId} AND pocket_id=${pocketId}`,
+      );
+      if (Number(usage.count))
+        throw new BadRequestException('Mova ou exclua os itens desta caixa antes de apagá-la.');
+      await db.execute(
+        sql`DELETE FROM future_plan_pockets WHERE user_id=${user} AND plan_id=${planId} AND id=${pocketId}`,
+      );
+      await audit(db, user, 'future_plan_pocket', pocketId, 'delete', before, null);
+      return { deleted: true };
     });
   }
   @Get('occurrences') occurrences(@UserId() user: string, @Query('month') rawMonth: string) {

@@ -1,10 +1,12 @@
-import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
+import { Controller, Get, Inject, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { Public } from '../auth/auth';
 import { DatabaseService } from '../database/database.service';
 
 @Controller('health')
 export class HealthController {
-  constructor(private readonly database: DatabaseService) {}
+  private readonly logger = new Logger(HealthController.name);
+
+  constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
 
   @Public()
   @Get('live')
@@ -18,7 +20,9 @@ export class HealthController {
     try {
       await this.database.ping();
       return { status: 'ok' };
-    } catch {
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Health check do PostgreSQL falhou: ${detail}`);
       throw new ServiceUnavailableException('Banco de dados indisponível.');
     }
   }

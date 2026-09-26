@@ -4,10 +4,10 @@ import { X, Plus, Inbox, ChevronLeft, ChevronRight, CalendarDays } from 'lucide-
 import { useSave } from '../lib/api';
 import { z } from 'zod';
 
-function validateField(name: string, value: string) {
-  if (!value || !/amount|balance|received|target|contribution/.test(name)) return true;
+function validateField(field: Field, value: string) {
+  if (!value || !field.currency) return true;
   const pattern =
-    name === 'opening_balance'
+    field.name === 'opening_balance'
       ? /^-?(0|[1-9]\d{0,16})(\.\d{1,2})?$/
       : /^(0|[1-9]\d{0,16})(\.\d{1,2})?$/;
   return (
@@ -27,6 +27,7 @@ export type Field = {
   min?: string | number;
   max?: string | number;
   hint?: string;
+  currency?: boolean;
 };
 export type EntityOption = { value: string; label: string; group?: string };
 export type FormSpec = {
@@ -284,21 +285,25 @@ export function FormDialog({ spec, onClose }: { spec: FormSpec; onClose: () => v
                     </option>
                   ))}
                 </select>
+              ) : field.type === 'textarea' ? (
+                <textarea
+                  rows={4}
+                  aria-invalid={!!errors[field.name]}
+                  {...register(field.name, {
+                    required: field.required !== false ? 'Preencha este campo.' : false,
+                  })}
+                />
               ) : (
                 <input
                   type={field.type === 'wide' ? 'text' : field.type || 'text'}
                   step={field.type === 'number' ? '1' : undefined}
-                  inputMode={
-                    field.name.match(/amount|balance|received|target|contribution/)
-                      ? 'decimal'
-                      : undefined
-                  }
+                  inputMode={field.currency ? 'decimal' : undefined}
                   min={field.min}
                   max={field.max}
                   aria-invalid={!!errors[field.name]}
                   {...register(field.name, {
                     required: field.required !== false ? 'Preencha este campo.' : false,
-                    validate: (value) => validateField(field.name, value),
+                    validate: (value) => validateField(field, value),
                   })}
                 />
               )}
@@ -471,10 +476,10 @@ export function Panel({
     </section>
   );
 }
-export function Progress({ value }: { value: number }) {
+export function Progress({ value, danger = false }: { value: number; danger?: boolean }) {
   return (
     <div
-      className="progress"
+      className={`progress${danger ? ' danger' : ''}`}
       role="progressbar"
       aria-label="Progresso"
       aria-valuenow={Math.round(Math.max(0, Math.min(value, 100)))}

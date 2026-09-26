@@ -4,6 +4,7 @@ import {
   ExecutionContext,
   Inject,
   Injectable,
+  Logger,
   SetMetadata,
   ServiceUnavailableException,
   UnauthorizedException,
@@ -20,8 +21,16 @@ export interface IdentityProvider {
   authenticate(token: string): Promise<{ provider: string; subject: string }>;
 }
 
+export function clerkJwtKey(value = process.env.CLERK_JWT_KEY) {
+  const key = value?.trim().replace(/\\n/g, '\n');
+  if (!key || key.includes('BEGIN PUBLIC KEY')) return key || undefined;
+  const lines = key.match(/.{1,64}/g)?.join('\n') || key;
+  return `-----BEGIN PUBLIC KEY-----\n${lines}\n-----END PUBLIC KEY-----`;
+}
+
 @Injectable()
 export class ClerkIdentityProvider implements IdentityProvider {
+  private readonly logger = new Logger(ClerkIdentityProvider.name);
   private readonly client = createClerkClient({ secretKey: process.env.CLERK_SECRET_KEY });
   private readonly statusCache = new Map<string, { allowed: boolean; expires: number }>();
 
@@ -36,14 +45,18 @@ export class ClerkIdentityProvider implements IdentityProvider {
     try {
       const claims = await verifyToken(token, {
         secretKey,
-        jwtKey: process.env.CLERK_JWT_KEY || undefined,
+        // Em desenvolvimento, deixe o Clerk resolver a chave atual da instância pela secret key.
+        // A chave PEM fixa é usada em produção para validação local sem depender de rede.
+        jwtKey: process.env.NODE_ENV === 'production' ? clerkJwtKey() : undefined,
         authorizedParties: parties,
         audience: process.env.CLERK_AUDIENCE || undefined,
       });
       if (!claims.sub || !claims.sid || !claims.azp || !parties.includes(claims.azp))
         throw new Error('Sessão inválida');
       subject = claims.sub;
-    } catch {
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`Token Clerk rejeitado: ${detail}`);
       throw new UnauthorizedException('Sessão inválida ou expirada.');
     }
     const cached = this.statusCache.get(subject);

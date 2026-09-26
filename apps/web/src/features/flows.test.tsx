@@ -4,10 +4,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { BrowserRouter } from 'react-router-dom';
-import { Accounts, Transactions, Cards, Goals, Recurrences } from './pages';
+import { BrowserRouter, Route, Routes } from 'react-router-dom';
+import { Accounts, Transactions, Cards, FuturePlans, Goals, Recurrences } from './pages';
 import { EntityCombobox, FormDialog } from '../components/ui';
-import { transactionCreateForm, transactionForm } from './forms';
+import { futurePlanForm, transactionCreateForm, transactionForm } from './forms';
 import { buildPurchaseSchedule, PurchaseDialog } from './purchase-dialog';
 import { euro } from '../lib/api';
 
@@ -17,6 +17,7 @@ vi.mock('@clerk/clerk-react', () => ({
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  window.history.replaceState({}, '', '/');
 });
 const account = { id: 'acc-1', name: 'Principal', balance: '100', purpose: 'available' },
   category = { id: 'cat-1', name: 'Alimentação', kind: 'expense' };
@@ -337,6 +338,163 @@ describe('financial UI flows', () => {
       'occurred_on',
     ]);
   });
+  it('keeps future plans visibly separate from current balances', async () => {
+    const open = vi.fn();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify([
+              {
+                id: 'plan',
+                name: 'Mudança',
+                theme: 'move',
+                target_date: '2027-06-01',
+                estimated_cost: '3000.00',
+                initial_estimate: '3000.00',
+                total_cost: '3000.00',
+                total_income: '10800.00',
+                reserved_amount: '600.00',
+                remaining: '0.00',
+                progress: '100.0',
+                months_remaining: 9,
+                monthly_income: '1200.00',
+                monthly_expenses: '700.00',
+                monthly_capacity: '500.00',
+                monthly_needed: '266.67',
+                monthly_margin: '233.33',
+                projected_balance: '8400.00',
+                viability: 'viable',
+                status: 'active',
+                items: [
+                  {
+                    id: 'salary',
+                    pocket_id: 'principal',
+                    kind: 'income',
+                    name: 'Salário',
+                    cadence: 'recurring',
+                    interval_months: 1,
+                    amount: '1200.00',
+                    projected_total: '10800.00',
+                  },
+                  {
+                    id: 'base',
+                    kind: 'expense',
+                    name: 'Estimativa inicial',
+                    cadence: 'once',
+                    amount: '3000.00',
+                    projected_total: '3000.00',
+                  },
+                  {
+                    id: 'rent',
+                    pocket_id: 'principal',
+                    kind: 'expense',
+                    name: 'Aluguel',
+                    cadence: 'recurring',
+                    interval_months: 1,
+                    amount: '700.00',
+                    projected_total: '6300.00',
+                  },
+                ],
+              },
+            ]),
+            { status: 200 },
+          ),
+      ),
+    );
+    window.history.replaceState({}, '', '/future-plans/plan');
+    render(
+      wrap(
+        <Routes>
+          <Route
+            path="/future-plans/:planId"
+            element={
+              <FuturePlans
+                month="2026-09"
+                setMonth={vi.fn()}
+                accounts={[account]}
+                categories={[category]}
+                open={open}
+              />
+            }
+          />
+        </Routes>,
+      ),
+    );
+    await screen.findByRole('heading', { name: 'Mudança', level: 1 });
+    expect(screen.getByText(/Analise caixas, desembolsos/)).toBeTruthy();
+    expect(screen.getByText('Plano viável')).toBeTruthy();
+    expect(screen.getByText('Salário')).toBeTruthy();
+    expect(screen.getByText('Aluguel')).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: 'Receita' }));
+    expect(open.mock.lastCall?.[0].path).toBe('/future-plans/plan/items');
+    expect(open.mock.lastCall?.[0].fields.map((field: any) => field.name)).toContain('pocket_id');
+    expect(
+      open.mock.lastCall?.[0].map({
+        name: 'Freelance',
+        amount: '300',
+        schedule: '6',
+        pocket_id: 'principal',
+        due_on: '',
+        notes: '',
+      }),
+    ).toMatchObject({ cadence: 'recurring', interval_months: 6, pocket_id: 'principal' });
+    await userEvent.click(screen.getByRole('button', { name: 'Nova caixa' }));
+    expect(open.mock.lastCall?.[0].path).toBe('/future-plans/plan/pockets');
+    await userEvent.click(screen.getByRole('button', { name: /Editar dados gerais/ }));
+    expect(open.mock.lastCall?.[0].path).toBe('/future-plans/plan');
+    await userEvent.click(screen.getByRole('button', { name: 'Excluir plano Mudança' }));
+    expect(open.mock.lastCall?.[0]).toMatchObject({
+      path: '/future-plans/plan',
+      method: 'DELETE',
+    });
+  });
+  it('keeps the plan index concise and links to a dedicated dashboard', async () => {
+    window.history.replaceState({}, '', '/future-plans');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json([
+          {
+            id: 'move',
+            name: 'Mudança',
+            theme: 'move',
+            target_date: '2027-06-01',
+            months_remaining: 9,
+            upfront_available: '600.00',
+            upfront_gap: '2400.00',
+            monthly_margin: '300.00',
+            projected_balance: '900.00',
+            status: 'active',
+          },
+        ]),
+      ),
+    );
+    render(
+      wrap(
+        <Routes>
+          <Route
+            path="/future-plans"
+            element={
+              <FuturePlans
+                month="2026-09"
+                setMonth={vi.fn()}
+                accounts={[account]}
+                categories={[category]}
+                open={vi.fn()}
+              />
+            }
+          />
+        </Routes>,
+      ),
+    );
+    await screen.findByRole('heading', { name: 'Mudança' });
+    expect(screen.getByRole('link', { name: /Abrir dashboard/ }).getAttribute('href')).toBe(
+      '/future-plans/move',
+    );
+    expect(screen.queryByText('CAIXAS DO CENÁRIO')).toBeNull();
+  });
   it('normalizes comma decimals and preserves user values after server rejection', async () => {
     HTMLDialogElement.prototype.showModal = function () {
       this.setAttribute('open', '');
@@ -361,6 +519,24 @@ describe('financial UI flows', () => {
     expect(screen.getByRole('alert').textContent).toBe('Conta indisponível.');
     expect((screen.getByLabelText(/Valor/) as HTMLInputElement).value).toBe('12,50');
     expect(JSON.parse((fetchMock.mock.calls[0] as any)[1].body).amount).toBe('12.50');
+  });
+  it('does not validate a future plan date as a monetary value', async () => {
+    HTMLDialogElement.prototype.showModal = function () {
+      this.setAttribute('open', '');
+    };
+    const fetchMock = vi.fn(async () => Response.json({ id: 'plan-1' }, { status: 201 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const onClose = vi.fn();
+    render(wrap(<FormDialog spec={futurePlanForm()} onClose={onClose} />));
+    await userEvent.type(screen.getByLabelText('Nome do plano'), 'Viagem Aveiro');
+    await userEvent.type(screen.getByLabelText(/Estimativa inicial do custo/), '250');
+    await userEvent.click(screen.getByRole('button', { name: 'Guardar' }));
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    expect(screen.queryByText('Use um valor em euros com até duas casas decimais.')).toBeNull();
+    expect(
+      (screen.getByLabelText('Quando gostaria de realizar?') as HTMLInputElement).inputMode,
+    ).toBe('');
+    expect(onClose).toHaveBeenCalledOnce();
   });
   it('preserves compatible fields when the movement type changes', async () => {
     HTMLDialogElement.prototype.showModal = function () {
@@ -435,14 +611,17 @@ describe('financial UI flows', () => {
     expect(screen.getByRole('heading', { name: 'Benefícios' })).toBeTruthy();
   });
   it('previews editable invoice values before creating a purchase', () => {
-    const schedule = buildPurchaseSchedule({
-      card_id: 'card',
-      category_id: 'cat-1',
-      description: 'Notebook',
-      amount: '338',
-      installments: '3',
-      purchased_on: '2026-01-01',
-    }, '2026-02-05');
+    const schedule = buildPurchaseSchedule(
+      {
+        card_id: 'card',
+        category_id: 'cat-1',
+        description: 'Notebook',
+        amount: '338',
+        installments: '3',
+        purchased_on: '2026-01-01',
+      },
+      '2026-02-05',
+    );
     expect(schedule).toEqual([
       { number: 1, amount: '112.66', due_on: '2026-02-05', paid: false },
       { number: 2, amount: '112.67', due_on: '2026-03-05', paid: false },
@@ -486,15 +665,16 @@ describe('financial UI flows', () => {
     expect(screen.getByText(/Total das parcelas/).textContent).toContain('338,34');
     const paid = screen.getAllByRole('button', { name: 'Marcar como já paga' })[0];
     await userEvent.click(paid);
-    expect(screen.getByRole('button', { name: 'Já estava paga' }).getAttribute('aria-pressed')).toBe(
-      'true',
-    );
+    expect(
+      screen.getByRole('button', { name: 'Já estava paga' }).getAttribute('aria-pressed'),
+    ).toBe('true');
   });
   it('loads an existing purchase with its installment count and editable schedule', async () => {
     HTMLDialogElement.prototype.showModal = function () {
       this.setAttribute('open', '');
     };
-    const fetchMock = vi.fn(async () =>
+    const fetchMock = vi.fn(
+      async () =>
         new Response(
           JSON.stringify({
             id: 'purchase',
@@ -511,7 +691,8 @@ describe('financial UI flows', () => {
             ],
           }),
           { status: 200 },
-        ));
+        ),
+    );
     vi.stubGlobal('fetch', fetchMock);
     render(
       wrap(
