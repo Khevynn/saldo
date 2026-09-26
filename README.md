@@ -85,6 +85,43 @@ Ao subir novamente, as migrations já aplicadas são verificadas por hash e igno
 
 As senhas Docker padrão servem apenas ao teste local e os serviços escutam em loopback. Para disponibilização pública, use segredos próprios, TLS e um PostgreSQL gerenciado conforme `docs/operations.md`.
 
+### Acesso pelo domínio com Cloudflare Tunnel
+
+O arquivo `compose.cloudflare.yaml` adiciona `cloudflared` ao ambiente e mantém Nginx, API e PostgreSQL fora da Internet. A conexão é iniciada de dentro do Docker para a Cloudflare, sem redirecionamento de portas no roteador.
+
+Defina no `.env`:
+
+```env
+PUBLIC_APP_URL=https://saldo.example.com
+CLOUDFLARE_TUNNEL_TOKEN=token-do-tunel
+CLERK_JWT_KEY="-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----"
+```
+
+`PUBLIC_APP_URL` deve ser a origem HTTPS exata, sem barra no final. Use chaves Clerk da instância ligada ao domínio. No painel Clerk, copie a chave PEM em API Keys, Show JWT public key.
+
+No painel Cloudflare, crie um túnel gerenciado remotamente e uma rota de aplicação publicada. Configure o hostname desejado e use este endereço como Service URL:
+
+```text
+http://web:8080
+```
+
+Dentro do container do túnel, `localhost` apontaria para o próprio `cloudflared`; por isso o destino precisa ser o nome Docker `web`.
+
+Suba o conjunto público:
+
+```sh
+npm run docker:public:up
+npm run docker:public:logs
+```
+
+Pare sem remover o banco:
+
+```sh
+npm run docker:public:down
+```
+
+O computador, o Docker Desktop e a conexão com a Internet precisam permanecer ativos. Não exponha as portas 8080, 3000, 5432 ou 55433 no roteador. O token do túnel permite executar uma réplica e deve permanecer somente no `.env`.
+
 Sem a chave pública, a interface apresenta instruções de configuração. A API falha no início caso faltem configuração de autenticação, banco ou papel seguro. Não há bypass de autenticação em desenvolvimento.
 
 O SDK faz autenticação no frontend; o backend valida assinatura, expiração, origem autorizada e sessão, e consulta o usuário Clerk para exigir e-mail principal verificado e rejeitar usuários banidos/removidos. Essa consulta é intencional nesta versão; indisponibilidade do provedor pode impedir acesso. O adaptador de identidade é substituível, mas não existe provedor alternativo implementado.

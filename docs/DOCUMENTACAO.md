@@ -571,6 +571,32 @@ docker compose down -v
 
 O último comando é destrutivo somente para o volume Docker do projeto.
 
+### Acesso público com Cloudflare Tunnel
+
+O override `compose.cloudflare.yaml` adiciona um container `cloudflared` à mesma rede privada do Nginx. O túnel abre conexões de saída para a Cloudflare. Nenhuma porta do roteador precisa ser encaminhada.
+
+Fluxo:
+
+```text
+navegador remoto
+-> HTTPS Cloudflare
+-> Cloudflare Tunnel
+-> container web:8080
+-> arquivos React ou proxy /api
+-> container api:3000
+-> container db:5432
+```
+
+A rota publicada no painel Cloudflare deve usar `http://web:8080` como Service URL. O ambiente público é iniciado com:
+
+```sh
+npm run docker:public:up
+```
+
+As variáveis obrigatórias adicionais são `PUBLIC_APP_URL`, `CLOUDFLARE_TUNNEL_TOKEN` e `CLERK_JWT_KEY`. A origem pública deve usar HTTPS e não deve terminar com barra.
+
+O túnel não transforma um computador pessoal em hospedagem de alta disponibilidade. Se o computador desligar, o Docker parar ou a Internet cair, a aplicação fica indisponível.
+
 ## 19. Execução sem Docker
 
 Preparar o PostgreSQL portátil e `.env`:

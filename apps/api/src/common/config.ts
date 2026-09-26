@@ -28,11 +28,18 @@ export function databaseConfig() {
   const production = process.env.NODE_ENV === 'production';
   if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL não configurada.');
   const database = new URL(process.env.DATABASE_URL);
+  const tlsMode = database.searchParams.get('sslmode') || '';
+  const privateDockerDatabase =
+    process.env.ALLOW_PLAINTEXT_DATABASE_ON_PRIVATE_DOCKER_NETWORK === 'true' &&
+    database.hostname === 'db';
   if (
     production &&
-    !['require', 'verify-ca', 'verify-full'].includes(database.searchParams.get('sslmode') || '')
+    !privateDockerDatabase &&
+    !['require', 'verify-ca', 'verify-full'].includes(tlsMode)
   )
-    throw new Error('DATABASE_URL deve exigir TLS em produção com sslmode.');
+    throw new Error(
+      'DATABASE_URL deve exigir TLS em produção ou usar a rede privada Docker autorizada.',
+    );
   return {
     production,
     poolMax: integer('DB_POOL_MAX', 10, 1, 100),
