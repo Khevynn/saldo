@@ -28,6 +28,7 @@ export type Field = {
   max?: string | number;
   hint?: string;
   currency?: boolean;
+  visibleWhen?: (values: Record<string, string>) => boolean;
 };
 export type EntityOption = { value: string; label: string; group?: string };
 export type FormSpec = {
@@ -163,6 +164,7 @@ export function FormDialog({ spec, onClose }: { spec: FormSpec; onClose: () => v
   } = useForm<Record<string, string>>({
     defaultValues: Object.fromEntries(active.fields.map((f) => [f.name, String(f.value ?? '')])),
   });
+  const currentValues = watch();
   useEffect(() => {
     ref.current?.showModal();
   }, []);
@@ -250,69 +252,84 @@ export function FormDialog({ spec, onClose }: { spec: FormSpec; onClose: () => v
         })}
       >
         <fieldset className="form-grid" disabled={save.isPending}>
-          {active.fields.map((field) => (
-            <label key={field.name} className={field.type === 'wide' ? 'wide' : ''}>
-              {field.label}
-              {field.options && field.searchable ? (
-                <>
-                  <input
-                    type="hidden"
+          {active.fields
+            .filter((field) => !field.visibleWhen || field.visibleWhen(currentValues))
+            .map((field) => (
+              <label key={field.name} className={field.type === 'wide' ? 'wide' : ''}>
+                {field.label}
+                {field.type === 'checkbox' ? (
+                  <div className="checkbox-control">
+                    <input
+                      type="checkbox"
+                      checked={watch(field.name) === 'yes'}
+                      onChange={(event) =>
+                        setValue(field.name, event.target.checked ? 'yes' : 'no', {
+                          shouldDirty: true,
+                        })
+                      }
+                    />
+                    <span>{watch(field.name) === 'yes' ? 'Sim' : 'Não'}</span>
+                  </div>
+                ) : field.options && field.searchable ? (
+                  <>
+                    <input
+                      type="hidden"
+                      {...register(field.name, {
+                        required: field.required !== false ? 'Preencha este campo.' : false,
+                      })}
+                    />
+                    <EntityCombobox
+                      options={field.options}
+                      value={watch(field.name) || ''}
+                      onChange={(value) =>
+                        setValue(field.name, value, { shouldDirty: true, shouldValidate: true })
+                      }
+                      optional={field.required === false}
+                      invalid={!!errors[field.name]}
+                    />
+                  </>
+                ) : field.options ? (
+                  <select
+                    aria-invalid={!!errors[field.name]}
+                    {...register(field.name, {
+                      required: field.required !== false ? 'Preencha este campo.' : false,
+                    })}
+                  >
+                    <option value="">Selecione</option>
+                    {field.options.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                ) : field.type === 'textarea' ? (
+                  <textarea
+                    rows={4}
+                    aria-invalid={!!errors[field.name]}
                     {...register(field.name, {
                       required: field.required !== false ? 'Preencha este campo.' : false,
                     })}
                   />
-                  <EntityCombobox
-                    options={field.options}
-                    value={watch(field.name) || ''}
-                    onChange={(value) =>
-                      setValue(field.name, value, { shouldDirty: true, shouldValidate: true })
-                    }
-                    optional={field.required === false}
-                    invalid={!!errors[field.name]}
+                ) : (
+                  <input
+                    type={field.type === 'wide' ? 'text' : field.type || 'text'}
+                    step={field.type === 'number' ? '1' : undefined}
+                    inputMode={field.currency ? 'decimal' : undefined}
+                    min={field.min}
+                    max={field.max}
+                    aria-invalid={!!errors[field.name]}
+                    {...register(field.name, {
+                      required: field.required !== false ? 'Preencha este campo.' : false,
+                      validate: (value) => validateField(field, value),
+                    })}
                   />
-                </>
-              ) : field.options ? (
-                <select
-                  aria-invalid={!!errors[field.name]}
-                  {...register(field.name, {
-                    required: field.required !== false ? 'Preencha este campo.' : false,
-                  })}
-                >
-                  <option value="">Selecione</option>
-                  {field.options.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              ) : field.type === 'textarea' ? (
-                <textarea
-                  rows={4}
-                  aria-invalid={!!errors[field.name]}
-                  {...register(field.name, {
-                    required: field.required !== false ? 'Preencha este campo.' : false,
-                  })}
-                />
-              ) : (
-                <input
-                  type={field.type === 'wide' ? 'text' : field.type || 'text'}
-                  step={field.type === 'number' ? '1' : undefined}
-                  inputMode={field.currency ? 'decimal' : undefined}
-                  min={field.min}
-                  max={field.max}
-                  aria-invalid={!!errors[field.name]}
-                  {...register(field.name, {
-                    required: field.required !== false ? 'Preencha este campo.' : false,
-                    validate: (value) => validateField(field, value),
-                  })}
-                />
-              )}
-              {field.hint && <small>{field.hint}</small>}
-              {errors[field.name] && (
-                <small className="danger">{errors[field.name]?.message}</small>
-              )}
-            </label>
-          ))}
+                )}
+                {field.hint && <small>{field.hint}</small>}
+                {errors[field.name] && (
+                  <small className="danger">{errors[field.name]?.message}</small>
+                )}
+              </label>
+            ))}
         </fieldset>
         {save.error && (
           <p className="error-box" role="alert">
@@ -396,6 +413,72 @@ export function PeriodNavigator({
         <button type="button" className="text-link" onClick={() => onChange(current)}>
           Este mês
         </button>
+      )}
+    </div>
+  );
+}
+
+export type PeriodMode = 'month' | 'year' | 'custom';
+export type DateRange = { from: string; to: string };
+
+export function periodBounds(mode: PeriodMode, month: string, range: DateRange): DateRange {
+  if (mode === 'custom') return range;
+  if (mode === 'year')
+    return { from: `${month.slice(0, 4)}-01-01`, to: `${month.slice(0, 4)}-12-31` };
+  const [year, monthNumber] = month.split('-').map(Number);
+  const lastDay = new Date(year, monthNumber, 0).getDate();
+  return { from: `${month}-01`, to: `${month}-${String(lastDay).padStart(2, '0')}` };
+}
+
+export function PeriodSelector({
+  mode,
+  onModeChange,
+  month,
+  onMonthChange,
+  range,
+  onRangeChange,
+}: {
+  mode: PeriodMode;
+  onModeChange: (mode: PeriodMode) => void;
+  month: string;
+  onMonthChange: (month: string) => void;
+  range: DateRange;
+  onRangeChange: (range: DateRange) => void;
+}) {
+  return (
+    <div className="analysis-period" aria-label="Período da visualização">
+      <select
+        aria-label="Abrangência da análise"
+        value={mode}
+        onChange={(event) => onModeChange(event.target.value as PeriodMode)}
+      >
+        <option value="month">Mês selecionado</option>
+        <option value="year">Ano selecionado</option>
+        <option value="custom">Período personalizado</option>
+      </select>
+      {mode === 'custom' ? (
+        <div className="custom-period-fields">
+          <label>
+            De
+            <input
+              type="date"
+              value={range.from}
+              max={range.to}
+              onChange={(event) => onRangeChange({ ...range, from: event.target.value })}
+            />
+          </label>
+          <label>
+            Até
+            <input
+              type="date"
+              value={range.to}
+              min={range.from}
+              onChange={(event) => onRangeChange({ ...range, to: event.target.value })}
+            />
+          </label>
+        </div>
+      ) : (
+        <PeriodNavigator month={month} onChange={onMonthChange} />
       )}
     </div>
   );
@@ -491,7 +574,24 @@ export function Progress({ value, danger = false }: { value: number; danger?: bo
     </div>
   );
 }
-export function LoadState({ loading, error }: { loading: boolean; error: Error | null }) {
+export function LoadState({
+  loading,
+  error,
+  label = 'A carregar suas finanças',
+}: {
+  loading: boolean;
+  error: Error | null;
+  label?: string;
+}) {
+  const [takingLonger, setTakingLonger] = useState(false);
+  useEffect(() => {
+    if (!loading) {
+      setTakingLonger(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setTakingLonger(true), 4000);
+    return () => window.clearTimeout(timer);
+  }, [loading]);
   if (error)
     return (
       <div className="error-box" role="alert">
@@ -501,7 +601,13 @@ export function LoadState({ loading, error }: { loading: boolean; error: Error |
   if (loading)
     return (
       <div className="loading" role="status">
-        A carregar suas finanças…
+        <span className="loading-spinner" aria-hidden="true" />
+        <strong>{label}…</strong>
+        <small>
+          {takingLonger
+            ? 'A conexão está mais lenta que o normal. Ainda estamos tentando.'
+            : 'A sincronizar os seus dados com segurança.'}
+        </small>
       </div>
     );
   return null;

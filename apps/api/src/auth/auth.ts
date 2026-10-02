@@ -28,6 +28,19 @@ export function clerkJwtKey(value = process.env.CLERK_JWT_KEY) {
   return `-----BEGIN PUBLIC KEY-----\n${lines}\n-----END PUBLIC KEY-----`;
 }
 
+export function validClerkSessionClaims(
+  claims: { sub?: string; sid?: string; azp?: string },
+  authorizedParties: string[],
+) {
+  return Boolean(
+    claims.sub &&
+    claims.sid &&
+    // Native Clerk sessions are bearer-token based and may not have a browser origin (`azp`).
+    // When Clerk does provide one, keep enforcing the configured allowlist.
+    (!claims.azp || authorizedParties.includes(claims.azp)),
+  );
+}
+
 @Injectable()
 export class ClerkIdentityProvider implements IdentityProvider {
   private readonly logger = new Logger(ClerkIdentityProvider.name);
@@ -51,8 +64,7 @@ export class ClerkIdentityProvider implements IdentityProvider {
         authorizedParties: parties,
         audience: process.env.CLERK_AUDIENCE || undefined,
       });
-      if (!claims.sub || !claims.sid || !claims.azp || !parties.includes(claims.azp))
-        throw new Error('Sessão inválida');
+      if (!validClerkSessionClaims(claims, parties)) throw new Error('Sessão inválida');
       subject = claims.sub;
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);

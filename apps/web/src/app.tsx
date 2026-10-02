@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { NavLink, Route, Routes, Navigate } from 'react-router-dom';
 import { UserButton } from '@clerk/clerk-react';
 import {
@@ -13,9 +13,11 @@ import {
   Menu,
   ShieldCheck,
   Telescope,
+  Settings as SettingsIcon,
 } from 'lucide-react';
 import { FormDialog, LoadState, type FormSpec } from './components/ui';
-import { useData, currentDate } from './lib/api';
+import { BrandMark } from './components/brand';
+import { useData, currentDate, type Row } from './lib/api';
 import { Dashboard } from './features/dashboard';
 import { PurchaseDialog, type PurchaseEditorSpec } from './features/purchase-dialog';
 import {
@@ -23,6 +25,7 @@ import {
   Budgets,
   Cards,
   Categories,
+  Settings,
   Goals,
   FuturePlans,
   Recurrences,
@@ -39,14 +42,23 @@ const navigation = [
   ['/future-plans', 'Planos futuros', Telescope],
   ['/recurrences', 'Recorrentes', Repeat2],
   ['/categories', 'Categorias', Tags],
+  ['/settings', 'Configurações', SettingsIcon],
 ] as const;
 export function App() {
   const [month, setMonth] = useState(currentDate().slice(0, 7)),
     [form, setForm] = useState<FormSpec | null>(null),
     [purchaseEditor, setPurchaseEditor] = useState<PurchaseEditorSpec | null>(null),
-    [menu, setMenu] = useState(false);
+    [menu, setMenu] = useState(false),
+    [theme, setTheme] = useState<'system' | 'light' | 'dark'>(
+      () => (localStorage.getItem('saldo.theme') as 'system' | 'light' | 'dark') || 'system',
+    );
+  useEffect(() => {
+    localStorage.setItem('saldo.theme', theme);
+    document.documentElement.dataset.theme = theme;
+  }, [theme]);
   const accounts = useData('/accounts'),
-    categories = useData('/categories');
+    categories = useData('/categories'),
+    profile = useData<Row>('/me');
   const props = {
     month,
     setMonth,
@@ -54,12 +66,17 @@ export function App() {
     openPurchase: setPurchaseEditor,
     accounts: accounts.data || [],
     categories: categories.data || [],
+    expenseRolloverDay: profile.data?.expense_rollover_day || 25,
+    theme,
+    setTheme,
   };
+
   return (
     <div className="app-shell">
       <aside className={`sidebar ${menu ? 'open' : ''}`}>
         <NavLink to="/" className="brand">
-          <span className="brand-mark">s</span>saldo<span className="brand-dot">.</span>
+          <BrandMark />
+          saldo<span className="brand-dot">.</span>
         </NavLink>
         <div className="workspace-label">ESPAÇO PESSOAL</div>
         <nav aria-label="Navegação principal">
@@ -120,6 +137,7 @@ export function App() {
               <Route path="/recurrences" element={<Recurrences {...props} />} />
               <Route path="/cards" element={<Cards {...props} />} />
               <Route path="/categories" element={<Categories {...props} />} />
+              <Route path="/settings" element={<Settings {...props} />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           )}

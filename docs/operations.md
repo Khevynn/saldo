@@ -2,7 +2,7 @@
 
 ## Credenciais
 
-Separe o usuário que aplica migrations do usuário da API. A senha no exemplo é apenas local; escolha segredos próprios e nunca versione `.env`. Em produção, injete somente DATABASE_URL e as variáveis de runtime no processo da API. Não disponibilize DATABASE_ADMIN_URL nem APP_DB_PASSWORD a ele.
+Separe o usuário que aplica migrations do usuário da API. A senha em `apps/api/.env.example` é apenas local; escolha segredos próprios e nunca versione `apps/api/.env`. Em produção, injete somente DATABASE_URL e as variáveis de runtime no processo da API. Não disponibilize DATABASE_ADMIN_URL nem APP_DB_PASSWORD a ele.
 
 O frontend usa apenas a chave **pública** Clerk. A chave secreta fica no backend. A autenticação está em um adaptador, mas Clerk continua sendo uma dependência operacional do acesso. Não existe login alternativo oculto.
 
@@ -22,7 +22,7 @@ O frontend deve ser entregue com os cabeçalhos presentes em `apps/web/public/_h
 
 O override executa a API com `NODE_ENV=production`, restringe CORS e Clerk à origem `PUBLIC_APP_URL` e exige `CLERK_JWT_KEY`. A conexão sem TLS com o PostgreSQL é aceita somente quando a opção explícita está ativa e o hostname do banco é exatamente `db`, na rede Docker privada. Bancos externos continuam obrigados a usar TLS.
 
-O token do túnel é uma credencial. Quem o possuir pode executar outra réplica do túnel. Guarde-o no `.env`, não o envie por chat e rotacione-o no painel se houver exposição.
+O token do túnel é uma credencial. Quem o possuir pode executar outra réplica do túnel. Guarde-o em `apps/api/.env`, não o envie por chat e rotacione-o no painel se houver exposição.
 
 ## Configuração de produção
 

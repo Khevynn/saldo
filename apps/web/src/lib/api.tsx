@@ -3,22 +3,42 @@ import { useCallback } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import Decimal from 'decimal.js';
 
+const apiBase = import.meta.env.VITE_API_URL || '/api';
+
 export type Row = Record<string, any>;
 export function useApi() {
   const { getToken } = useAuth();
   return useCallback(
     async <T,>(path: string, method = 'GET', data?: unknown, key?: string): Promise<T> => {
-      const token = await getToken();
-      if (!token) throw new Error('Sua sessão expirou. Entre novamente.');
-      const response = await fetch(`${import.meta.env.VITE_API_URL || '/api'}${path}`, {
-        method,
-        headers: {
-          Authorization: `Bearer ${token}`,
-          ...(data !== undefined ? { 'Content-Type': 'application/json' } : {}),
-          ...(key ? { 'Idempotency-Key': key } : {}),
-        },
-        body: data !== undefined ? JSON.stringify(data) : undefined,
-      });
+      const request = async (skipCache = false) => {
+        const token = await getToken(skipCache ? { skipCache: true } : undefined);
+        if (!token) throw new Error('Sua sessão expirou. Entre novamente.');
+        const controller = new AbortController();
+        const timeout = window.setTimeout(() => controller.abort(), 15000);
+        try {
+          return await fetch(`${apiBase}${path}`, {
+            method,
+            signal: controller.signal,
+            headers: {
+              Authorization: `Bearer ${token}`,
+              ...(data !== undefined ? { 'Content-Type': 'application/json' } : {}),
+              ...(key ? { 'Idempotency-Key': key } : {}),
+            },
+            body: data !== undefined ? JSON.stringify(data) : undefined,
+          });
+        } catch (error) {
+          if (error instanceof DOMException && error.name === 'AbortError') {
+            throw new Error(
+              'O servidor demorou para responder. Verifique a internet e tente novamente.',
+            );
+          }
+          throw error;
+        } finally {
+          window.clearTimeout(timeout);
+        }
+      };
+      let response = await request();
+      if (response.status === 401) response = await request(true);
       const payload = await response
         .json()
         .catch(() => ({ message: 'Resposta inesperada do servidor.' }));

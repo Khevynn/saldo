@@ -89,8 +89,8 @@ saldo/
   compose.yaml                 Serviços Docker
   Dockerfile                  Imagens da API e do frontend
   package.json                Scripts e workspaces
-  .env                        Segredos locais, nunca versionado
-  .env.example                Catálogo das variáveis disponíveis
+  apps/*/.env                 Ambiente próprio de cada aplicação, nunca versionado
+  apps/*/.env.example         Catálogo de variáveis de cada aplicação
 ```
 
 ## 6. Backend
@@ -612,7 +612,7 @@ O túnel não transforma um computador pessoal em hospedagem de alta disponibili
 
 ## 19. Execução sem Docker
 
-Preparar o PostgreSQL portátil e `.env`:
+Preparar o PostgreSQL portátil e `apps/api/.env`:
 
 ```sh
 npm ci
@@ -659,7 +659,7 @@ Endereços:
 | `DOCKER_DB_PORT`                     | Porta local do PostgreSQL Docker               |
 | `DOCKER_WEB_PORT`                    | Porta local do Nginx Docker                    |
 
-Consulte `.env.example` para valores e nomes atualizados. Nunca versione `.env`.
+Consulte os arquivos `apps/*/.env.example` para valores e nomes atualizados. Nunca versione `.env`.
 
 ## 21. Migrations
 
@@ -757,7 +757,7 @@ Use `request_id` para correlacionar o erro recebido pelo usuário com o log da A
 | Novo campo de formulário    | `forms.ts`, componente da tela, validação backend e migration se persistido |
 | Mudança visual global       | `styles.css` e `components/ui.tsx`                                          |
 | Autenticação                | `auth/auth.ts` e `main.tsx`                                                 |
-| Configuração de produção    | `common/config.ts`, `.env.example` e `operations.md`                        |
+| Configuração de produção    | `common/config.ts`, `apps/api/.env.example` e `operations.md`               |
 | Docker ou proxy             | `compose.yaml`, `Dockerfile` e `docker/nginx.conf`                          |
 
 ## 26. Limites atuais
@@ -796,6 +796,6 @@ Use `request_id` para correlacionar o erro recebido pelo usuário com o log da A
 - `docs/api.md`: resumo dos contratos REST.
 - `docs/operations.md`: segurança, produção, backup e crescimento.
 - `README.md`: instalação e comandos do dia a dia.
-- `.env.example`: configuração disponível.
+- `apps/*/.env.example`: configuração disponível para API, web e mobile.
 
 Este documento deve ser atualizado quando uma rota, tabela, regra financeira, variável de ambiente ou procedimento operacional mudar.

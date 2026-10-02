@@ -45,7 +45,10 @@ export class PlanningController {
   ) {}
   @Get('recurrences') recurrences(@UserId() user: string) {
     return this.store.read(user, (db) =>
-      rows(db, sql`SELECT * FROM recurrences WHERE user_id=${user} ORDER BY description`),
+      rows(
+        db,
+        sql`SELECT * FROM recurrences WHERE user_id=${user} AND deleted_at IS NULL ORDER BY description`,
+      ),
     );
   }
   @Post('recurrences') createRecurrence(@UserId() user: string, @Body() input: unknown) {
@@ -111,6 +114,25 @@ export class PlanningController {
         );
       await audit(db, user, 'recurrence', recurrenceId, 'update', before, result);
       return result;
+    });
+  }
+  @Delete('recurrences/:id') deleteRecurrence(@UserId() user: string, @Param('id') rawId: string) {
+    const recurrenceId = parse(id, rawId);
+    return this.store.run(user, async (db) => {
+      const [before] = await rows(
+        db,
+        sql`SELECT * FROM recurrences WHERE user_id=${user} AND id=${recurrenceId} AND deleted_at IS NULL`,
+      );
+      if (!before) throw new NotFoundException('Recorrência não encontrada.');
+      const [result] = await rows(
+        db,
+        sql`UPDATE recurrences SET active=false,deleted_at=now() WHERE user_id=${user} AND id=${recurrenceId} RETURNING *`,
+      );
+      await db.execute(
+        sql`UPDATE occurrences SET state='skipped' WHERE user_id=${user} AND recurrence_id=${recurrenceId} AND state='pending'`,
+      );
+      await audit(db, user, 'recurrence', recurrenceId, 'delete', before, result);
+      return { deleted: true };
     });
   }
   @Get('future-plans') futurePlans(@UserId() user: string) {
@@ -373,13 +395,37 @@ export class PlanningController {
       return { deleted: true };
     });
   }
-  @Get('occurrences') occurrences(@UserId() user: string, @Query('month') rawMonth: string) {
+  @Get('occurrences') occurrences(
+    @UserId() user: string,
+    @Query('month') rawMonth?: string,
+    @Query('from') rawFrom?: string,
+    @Query('to') rawTo?: string,
+  ) {
+    if (!!rawFrom !== !!rawTo)
+      throw new BadRequestException('Informe as datas inicial e final do período.');
     const m = parse(month, rawMonth || today().slice(0, 7));
+    const from = rawFrom ? parse(date, rawFrom) : `${m}-01`;
+    const to = rawTo ? parse(date, rawTo) : `${shiftMonth(m, 1)}-01`;
+    const toExclusive = rawTo
+      ? new Date(new Date(`${to}T12:00:00`).getTime() + 86400000).toISOString().slice(0, 10)
+      : to;
+    const monthCount =
+      (Number(to.slice(0, 4)) - Number(from.slice(0, 4))) * 12 +
+      Number(to.slice(5, 7)) -
+      Number(from.slice(5, 7)) +
+      1;
+    if (from > to || monthCount < 1 || monthCount > 24)
+      throw new BadRequestException('Escolha um período válido de até 24 meses.');
     return this.store.run(user, async (db) => {
-      await this.planning.materialize(db, user, m);
+      for (let cursor = from.slice(0, 7); cursor <= to.slice(0, 7); cursor = shiftMonth(cursor, 1))
+        await this.planning.materialize(db, user, cursor);
       return rows(
         db,
-        sql`SELECT * FROM occurrences WHERE user_id=${user} AND due_on>=${m + '-01'}::date AND due_on<${shiftMonth(m, 1) + '-01'}::date ORDER BY due_on,description`,
+        sql`SELECT o.* FROM occurrences o
+          JOIN recurrences r ON r.user_id=o.user_id AND r.id=o.recurrence_id
+          WHERE o.user_id=${user} AND o.due_on>=${from}::date AND o.due_on<${toExclusive}::date
+            AND (r.deleted_at IS NULL OR o.state='confirmed')
+          ORDER BY o.due_on,o.description`,
       );
     });
   }
@@ -410,6 +456,7 @@ export class PlanningController {
             (existing.kind === 'income' ? existing.destination_id : existing.source_id) !==
               d.account_id ||
             existing.occurred_on !== d.occurred_on ||
+            (existing.reference_month?.slice(0, 7) || null) !== (d.reference_month || null) ||
             !new Decimal(existing.amount).eq(d.amount)
           )
             throw new ConflictException(
@@ -428,6 +475,7 @@ export class PlanningController {
           amount: d.amount,
           received: o.kind === 'transfer' ? d.amount : null,
           occurred_on: d.occurred_on,
+          reference_month: d.reference_month || null,
         });
         await db.execute(
           sql`UPDATE occurrences SET state='confirmed',transaction_id=${tx.id} WHERE user_id=${user} AND id=${occurrenceId}`,
@@ -499,6 +547,85 @@ export class PlanningController {
       );
       await audit(db, user, 'occurrence', occurrenceId, 'update', before, result);
       return result;
+    });
+  }
+  @Get('budgets/range') budgetRange(
+    @UserId() user: string,
+    @Query('from') rawFrom: string,
+    @Query('to') rawTo: string,
+  ) {
+    const from = parse(date, rawFrom);
+    const to = parse(date, rawTo);
+    const monthCount =
+      (Number(to.slice(0, 4)) - Number(from.slice(0, 4))) * 12 +
+      Number(to.slice(5, 7)) -
+      Number(from.slice(5, 7)) +
+      1;
+    if (from > to || monthCount < 1 || monthCount > 24)
+      throw new BadRequestException('Escolha um período válido de até 24 meses.');
+    return this.store.run(user, async (db) => {
+      const totals = new Map<
+        string,
+        {
+          category_id: string;
+          name: string;
+          budget: Decimal;
+          budgetMonths: number;
+        }
+      >();
+      for (
+        let cursor = from.slice(0, 7);
+        cursor <= to.slice(0, 7);
+        cursor = shiftMonth(cursor, 1)
+      ) {
+        const monthRows = await this.planning.budget(db, user, cursor);
+        for (const row of monthRows) {
+          const total = totals.get(row.category_id) || {
+            category_id: row.category_id,
+            name: row.name,
+            budget: new Decimal(0),
+            budgetMonths: 0,
+          };
+          if (row.budget !== null) {
+            total.budget = total.budget.plus(row.budget);
+            total.budgetMonths += 1;
+          }
+          totals.set(row.category_id, total);
+        }
+      }
+      const toExclusive = new Date(new Date(`${to}T12:00:00`).getTime() + 86400000)
+        .toISOString()
+        .slice(0, 10);
+      const actuals = await rows<{
+        category_id: string;
+        name: string;
+        spent: string;
+        expected: string;
+        committed: string;
+      }>(
+        db,
+        sql`SELECT c.id AS category_id,c.name,
+        coalesce((SELECT sum(e.amount) FROM cash_effects e WHERE e.user_id=c.user_id AND e.category_id=c.id AND e.kind='expense' AND e.occurred_on>=${from}::date AND e.occurred_on<${toExclusive}::date),0)::text AS spent,
+        coalesce((SELECT sum(o.amount) FROM occurrences o WHERE o.user_id=c.user_id AND o.category_id=c.id AND o.kind='expense' AND o.state='pending' AND o.due_on>=${from}::date AND o.due_on<${toExclusive}::date),0)::text AS expected,
+        coalesce((SELECT sum(s.amount) FROM installments s JOIN invoices i ON i.user_id=s.user_id AND i.id=s.invoice_id JOIN purchases p ON p.user_id=s.user_id AND p.id=s.purchase_id
+          WHERE s.user_id=c.user_id AND p.category_id=c.id AND p.deleted_at IS NULL AND i.payment_id IS NULL AND NOT s.settled_before_tracking AND i.due_on>=${from}::date AND i.due_on<${toExclusive}::date),0)::text AS committed
+        FROM categories c WHERE c.user_id=${user} AND c.kind='expense' ORDER BY c.name`,
+      );
+      return actuals.map((actual) => {
+        const total = totals.get(actual.category_id)!;
+        const budget = total.budgetMonths ? total.budget : null;
+        const spent = new Decimal(actual.spent);
+        const expected = new Decimal(actual.expected);
+        const committed = new Decimal(actual.committed);
+        return {
+          ...actual,
+          budget: budget?.toFixed(2) || null,
+          budget_scope: 'range',
+          remaining: budget ? budget.minus(spent).toFixed(2) : null,
+          margin: budget ? budget.minus(spent).minus(expected).minus(committed).toFixed(2) : null,
+          utilization: budget?.gt(0) ? spent.div(budget).times(100).toFixed(1) : null,
+        };
+      });
     });
   }
   @Get('budgets/:month') budget(@UserId() user: string, @Param('month') rawMonth: string) {

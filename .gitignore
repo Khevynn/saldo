@@ -1,9 +1,14 @@
 node_modules/
 dist/
-.env
-.env.*
-!.env.example
+**/.env
+**/.env.*
+!**/.env.example
 coverage/
 *.log
 *.tsbuildinfo
 .local/
+apps/mobile/.expo/
+apps/mobile/android/
+apps/mobile/ios/
+apps/mobile/*.jks
+apps/mobile/*.keystore

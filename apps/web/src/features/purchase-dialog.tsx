@@ -170,9 +170,7 @@ export function PurchaseDialog({
       return;
     }
     setError('');
-    if (
-      schedule.some((item) => !validMoney(item.amount) || !item.due_on)
-    ) {
+    if (schedule.some((item) => !validMoney(item.amount) || !item.due_on)) {
       setError('Preencha os dados da compra e confira todas as parcelas.');
       return;
     }
@@ -213,8 +211,8 @@ export function PurchaseDialog({
         for paga.
       </p>
       <LoadState loading={details.isLoading} error={details.error} />
-      {(!spec.purchaseId || details.data) && (
-        step === 'details' ? (
+      {(!spec.purchaseId || details.data) &&
+        (step === 'details' ? (
           <div>
             <fieldset className="form-grid" disabled={save.isPending}>
               <label className="wide">
@@ -237,7 +235,9 @@ export function PurchaseDialog({
               <label>
                 Categoria
                 <EntityCombobox
-                  options={options(spec.categories.filter((category) => category.kind === 'expense'))}
+                  options={options(
+                    spec.categories.filter((category) => category.kind === 'expense'),
+                  )}
                   value={values.category_id}
                   onChange={(value) => updateValue('category_id', value)}
                   optional={false}
@@ -370,8 +370,7 @@ export function PurchaseDialog({
               </button>
             </div>
           </form>
-        )
-      )}
+        ))}
     </dialog>
   );
 }

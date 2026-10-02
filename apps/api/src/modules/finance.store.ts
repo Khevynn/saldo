@@ -83,6 +83,8 @@ export class FinanceStore {
     return response;
   }
   async validateTransaction(db: Db, user: string, data: TransactionInput) {
+    if (data.kind !== 'expense' && data.funding_transfer_id)
+      throw new BadRequestException('Somente uma despesa pode ser ligada a uma transferência.');
     if (data.kind === 'income') {
       if (!data.destination_id || data.source_id || data.received || !data.category_id)
         throw new BadRequestException('Receita exige conta de destino e categoria.');
@@ -108,13 +110,24 @@ export class FinanceStore {
     if (data.destination_id) await account(db, user, data.destination_id, data.occurred_on);
     if (data.category_id)
       await category(db, user, data.category_id, data.kind === 'income' ? 'income' : 'expense');
+    if (data.funding_transfer_id) {
+      const [funding] = await rows(
+        db,
+        sql`SELECT * FROM transactions WHERE user_id=${user} AND id=${data.funding_transfer_id} AND kind='transfer' AND deleted_at IS NULL`,
+      );
+      if (!funding) throw new BadRequestException('Transferência de origem não encontrada.');
+      if (funding.destination_id !== data.source_id)
+        throw new BadRequestException(
+          'A transferência precisa ter como destino a conta usada para pagar a despesa.',
+        );
+    }
   }
   async insertTransaction(db: Db, user: string, data: TransactionInput) {
     await this.validateTransaction(db, user, data);
     const [result] = await rows(
       db,
-      sql`INSERT INTO transactions(user_id,kind,description,source_id,destination_id,amount,received,category_id,category_kind,occurred_on)
-      VALUES(${user},${data.kind},${data.description},${data.source_id || null},${data.destination_id || null},${data.amount},${data.received || null},${data.category_id || null},${data.category_id ? (data.kind === 'income' ? 'income' : 'expense') : null},${data.occurred_on}) RETURNING *`,
+      sql`INSERT INTO transactions(user_id,kind,description,source_id,destination_id,amount,received,category_id,category_kind,occurred_on,reference_month,funding_transfer_id)
+      VALUES(${user},${data.kind},${data.description},${data.source_id || null},${data.destination_id || null},${data.amount},${data.received || null},${data.category_id || null},${data.category_id ? (data.kind === 'income' ? 'income' : 'expense') : null},${data.occurred_on},${data.reference_month ? data.reference_month + '-01' : null},${data.funding_transfer_id || null}) RETURNING *`,
     );
     await audit(db, user, 'transaction', result.id, 'create', null, result);
     return result;

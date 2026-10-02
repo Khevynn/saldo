@@ -10,21 +10,31 @@
     "setup:local": "tsx scripts/dev-database.ts --setup",
     "dev:db": "tsx scripts/dev-database.ts",
     "dev:local": "concurrently -k -n db,app -c yellow,green \"npm run dev:db\" \"tsx scripts/wait-database.ts && npm run dev\"",
-    "docker:up": "docker compose up --build -d",
-    "docker:logs": "docker compose logs -f api web db",
-    "docker:down": "docker compose down",
+    "docker:up": "docker compose --env-file apps/api/.env --env-file apps/web/.env up --build -d",
+    "docker:logs": "docker compose --env-file apps/api/.env --env-file apps/web/.env logs -f api web db",
+    "docker:down": "docker compose --env-file apps/api/.env --env-file apps/web/.env down",
     "build": "npm run build --workspaces",
     "typecheck": "npm run typecheck --workspaces && tsc -p tsconfig.scripts.json",
     "test": "vitest run --configLoader runner",
     "test:postgres": "npm run build -w apps/api && node --experimental-strip-types scripts/test-postgres.ts",
     "preview:ui": "vite --config apps/web/tests/preview.config.ts --configLoader runner",
+    "mobile:native:start": "npm run start -w apps/mobile",
+    "mobile:native:start:tunnel": "npm run start:tunnel -w apps/mobile",
+    "mobile:native:dev-build": "npm run dev:eas -w apps/mobile",
+    "mobile:native:android": "npm run android -w apps/mobile",
+    "mobile:native:typecheck": "npm run typecheck -w apps/mobile",
+    "mobile:native:apk": "npm run apk:eas -w apps/mobile",
+    "mobile:native:aab": "npm run aab:eas -w apps/mobile",
+    "mobile:update:preview": "npm run update:preview -w apps/mobile",
+    "mobile:update:production": "npm run update:production -w apps/mobile",
+    "publish:all": "tsx scripts/publish-all.ts",
     "format": "prettier --write apps scripts docs README.md package.json tsconfig.json vitest.config.ts",
-    "db:migrate": "tsx --env-file=.env apps/api/src/database/migrate.ts",
-    "db:backup": "node --experimental-strip-types --env-file=.env scripts/backup-database.ts",
-    "db:provision": "tsx --env-file=.env apps/api/src/database/provision.ts",
-    "docker:public:up": "docker compose -f compose.yaml -f compose.cloudflare.yaml up --build -d",
-    "docker:public:logs": "docker compose -f compose.yaml -f compose.cloudflare.yaml logs -f tunnel web api db",
-    "docker:public:down": "docker compose -f compose.yaml -f compose.cloudflare.yaml down"
+    "db:migrate": "tsx --env-file=apps/api/.env apps/api/src/database/migrate.ts",
+    "db:backup": "node --experimental-strip-types --env-file=apps/api/.env scripts/backup-database.ts",
+    "db:provision": "tsx --env-file=apps/api/.env apps/api/src/database/provision.ts",
+    "docker:public:up": "docker compose --env-file apps/api/.env --env-file apps/web/.env -f compose.yaml -f compose.cloudflare.yaml up --build -d",
+    "docker:public:logs": "docker compose --env-file apps/api/.env --env-file apps/web/.env -f compose.yaml -f compose.cloudflare.yaml logs -f tunnel web api db",
+    "docker:public:down": "docker compose --env-file apps/api/.env --env-file apps/web/.env -f compose.yaml -f compose.cloudflare.yaml down"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.3.14",
@@ -41,5 +51,14 @@
     "tsx": "^4.20.0",
     "typescript": "^5.9.0",
     "vitest": "^5.0.1"
+  },
+  "overrides": {
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "@types/react": "19.2.18",
+    "react-native-svg": "15.15.4",
+    "ws@7.5.13": {
+      "utf-8-validate": "5.0.10"
+    }
   }
 }

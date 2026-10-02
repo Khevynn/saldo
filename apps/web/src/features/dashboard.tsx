@@ -13,8 +13,17 @@ import {
   Bar,
   Legend,
 } from 'recharts';
-import { Empty, LoadState, PageHeader, Panel, PeriodNavigator, Progress } from '../components/ui';
-import { euro, useData, type Row } from '../lib/api';
+import {
+  Empty,
+  LoadState,
+  PageHeader,
+  Panel,
+  PeriodSelector,
+  Progress,
+  type DateRange,
+  type PeriodMode,
+} from '../components/ui';
+import { currentDate, euro, useData, type Row } from '../lib/api';
 
 export function Dashboard({
   month,
@@ -23,10 +32,20 @@ export function Dashboard({
   month: string;
   setMonth: (month: string) => void;
 }) {
-  const [annual, setAnnual] = useState(false);
+  const [periodMode, setPeriodMode] = useState<PeriodMode>('month');
+  const [range, setRange] = useState<DateRange>({
+    from: `${month}-01`,
+    to: currentDate(),
+  });
+  const annual = periodMode === 'year';
+  const custom = periodMode === 'custom';
   const goals = useData('/goals');
   const query = useData<Row>(
-      annual ? `/reports/annual?year=${month.slice(0, 4)}` : `/reports/overview?month=${month}`,
+      custom
+        ? `/reports/period?from=${range.from}&to=${range.to}`
+        : annual
+          ? `/reports/annual?year=${month.slice(0, 4)}`
+          : `/reports/overview?month=${month}`,
     ),
     r = query.data;
   if (!r) return <LoadState loading={query.isLoading} error={query.error} />;
@@ -45,19 +64,18 @@ export function Dashboard({
     <>
       <PageHeader
         eyebrow="VISÃO GERAL"
-        title="Seu dinheiro, com clareza."
-        description="Entenda o presente. Prepare seus próximos passos."
+        title="Resumo financeiro"
+        description="Saldos e movimentações do período selecionado."
         action={
           <div className="header-actions">
-            <PeriodNavigator month={month} onChange={setMonth} />
-            <select
-              aria-label="Abrangência da análise"
-              value={annual ? 'year' : 'month'}
-              onChange={(e) => setAnnual(e.target.value === 'year')}
-            >
-              <option value="month">Mês selecionado</option>
-              <option value="year">Ano de {month.slice(0, 4)}</option>
-            </select>
+            <PeriodSelector
+              mode={periodMode}
+              onModeChange={setPeriodMode}
+              month={month}
+              onMonthChange={setMonth}
+              range={range}
+              onRangeChange={setRange}
+            />
           </div>
         }
       />
@@ -75,7 +93,7 @@ export function Dashboard({
         </article>
         <article className="metric">
           <div>
-            <span>Receitas do {annual ? 'ano' : 'mês'}</span>
+            <span>{custom ? 'Receitas do período' : `Receitas do ${annual ? 'ano' : 'mês'}`}</span>
             <ArrowDownLeft size={19} />
           </div>
           <strong>{euro(r.income)}</strong>
@@ -83,7 +101,7 @@ export function Dashboard({
         </article>
         <article className="metric">
           <div>
-            <span>Despesas do {annual ? 'ano' : 'mês'}</span>
+            <span>{custom ? 'Despesas do período' : `Despesas do ${annual ? 'ano' : 'mês'}`}</span>
             <ArrowUpRight size={19} />
           </div>
           <strong>{euro(r.expense)}</strong>
@@ -91,7 +109,7 @@ export function Dashboard({
         </article>
         <article className="metric">
           <div>
-            <span>Sobra do {annual ? 'ano' : 'mês'}</span>
+            <span>{custom ? 'Sobra do período' : `Sobra do ${annual ? 'ano' : 'mês'}`}</span>
             <Landmark size={19} />
           </div>
           <strong className={Number(r.surplus) < 0 ? 'danger' : ''}>{euro(r.surplus)}</strong>
@@ -222,8 +240,7 @@ export function Dashboard({
               <div className="category-list">
                 {r.categories.slice(0, 6).map((c: Row) => {
                   const budget = r.budgets.find(
-                      (item: Row) =>
-                        item.category_id === c.category_id || item.name === c.name,
+                      (item: Row) => item.category_id === c.category_id || item.name === c.name,
                     ),
                     exceeded =
                       budget?.budget !== null &&
@@ -289,59 +306,63 @@ export function Dashboard({
           </p>
         ) : null}
       </Panel>
-      <div className="summary-grid">
-        <Panel
-          title="Sua consistência"
-          description={`${r.average_months} meses completos nos últimos 12 meses`}
-        >
-          <div className="split">
-            <span>Sobra média mensal</span>
-            <strong>
-              {r.average_surplus === null ? 'Ainda sem histórico' : euro(r.average_surplus)}
-            </strong>
-          </div>
-          <div className="split">
-            <span>Taxa de poupança</span>
-            <strong>{r.savings_rate === null ? 'Sem dados' : `${r.savings_rate}%`}</strong>
-          </div>
-          <p className="footnote">
-            Inclui benefícios recebidos. Transferir para uma reserva não conta como nova poupança.
-          </p>
-        </Panel>
-        <Panel
-          title="Atenção ao orçamento"
-          description="Limites que merecem uma revisão"
-          action={
-            <Link className="text-link" to="/budgets">
-              Ver orçamento <ChevronRight size={14} />
-            </Link>
-          }
-        >
-          {r.budgets.filter(
-            (b: Row) =>
-              b.budget !== null && Number(b.spent) >= Number(b.budget) * 0.8 && Number(b.spent) > 0,
-          ).length ? (
-            r.budgets
-              .filter(
-                (b: Row) =>
-                  b.budget !== null &&
-                  Number(b.spent) >= Number(b.budget) * 0.8 &&
-                  Number(b.spent) > 0,
-              )
-              .slice(0, 3)
-              .map((b: Row) => (
-                <div className="list-row" key={b.category_id}>
-                  <span className="grow">{b.name}</span>
-                  <b className={Number(b.spent) > Number(b.budget) ? 'danger' : ''}>
-                    {euro(b.spent)} / {euro(b.budget)}
-                  </b>
-                </div>
-              ))
-          ) : (
-            <p className="quiet-note">Nenhuma categoria próxima do limite neste mês.</p>
-          )}
-        </Panel>
-      </div>
+      {!custom && (
+        <div className="summary-grid">
+          <Panel
+            title="Sua consistência"
+            description={`${r.average_months} meses completos nos últimos 12 meses`}
+          >
+            <div className="split">
+              <span>Sobra média mensal</span>
+              <strong>
+                {r.average_surplus === null ? 'Ainda sem histórico' : euro(r.average_surplus)}
+              </strong>
+            </div>
+            <div className="split">
+              <span>Taxa de poupança</span>
+              <strong>{r.savings_rate === null ? 'Sem dados' : `${r.savings_rate}%`}</strong>
+            </div>
+            <p className="footnote">
+              Inclui benefícios recebidos. Transferir para uma reserva não conta como nova poupança.
+            </p>
+          </Panel>
+          <Panel
+            title="Atenção ao orçamento"
+            description="Limites que merecem uma revisão"
+            action={
+              <Link className="text-link" to="/budgets">
+                Ver orçamento <ChevronRight size={14} />
+              </Link>
+            }
+          >
+            {r.budgets.filter(
+              (b: Row) =>
+                b.budget !== null &&
+                Number(b.spent) >= Number(b.budget) * 0.8 &&
+                Number(b.spent) > 0,
+            ).length ? (
+              r.budgets
+                .filter(
+                  (b: Row) =>
+                    b.budget !== null &&
+                    Number(b.spent) >= Number(b.budget) * 0.8 &&
+                    Number(b.spent) > 0,
+                )
+                .slice(0, 3)
+                .map((b: Row) => (
+                  <div className="list-row" key={b.category_id}>
+                    <span className="grow">{b.name}</span>
+                    <b className={Number(b.spent) > Number(b.budget) ? 'danger' : ''}>
+                      {euro(b.spent)} / {euro(b.budget)}
+                    </b>
+                  </div>
+                ))
+            ) : (
+              <p className="quiet-note">Nenhuma categoria próxima do limite neste mês.</p>
+            )}
+          </Panel>
+        </div>
+      )}
     </>
   );
 }

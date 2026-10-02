@@ -1,17 +1,158 @@
 /* Saldo 2.0 — a single, restrained layout system layered over legacy component styles. */
 :root {
-  --ui-bg: #F4F5F7;
-  --ui-surface: #FFFFFF;
-  --ui-surface-soft: #FAFBFC;
-  --ui-text: #172B4D;
-  --ui-muted: #5E6C84;
-  --ui-line: #DFE1E6;
-  --ui-line-strong: #C1C7D0;
-  --ui-accent: #00875A;
+  --ui-bg: #f4f5f7;
+  --ui-surface: #ffffff;
+  --ui-surface-soft: #fafbfc;
+  --ui-text: #172b4d;
+  --ui-muted: #5e6c84;
+  --ui-line: #dfe1e6;
+  --ui-line-strong: #c1c7d0;
+  --ui-accent: #00875a;
   --ui-accent-dark: #006644;
-  --ui-danger: #DE350B;
+  --ui-danger: #de350b;
   --ui-radius: 3px;
   --ui-shadow: none;
+}
+
+[data-theme='dark'][data-theme='dark'] {
+  color-scheme: dark;
+  --green: #65b99e;
+  --muted: #9eafa9;
+  --border: #283a34;
+  --surface: #14211d;
+  --danger: #ff9383;
+  --ui-bg: #0d1613;
+  --ui-surface: #14211d;
+  --ui-surface-soft: #182620;
+  --ui-text: #edf4f2;
+  --ui-muted: #9eafa9;
+  --ui-line: #283a34;
+  --ui-line-strong: #40534c;
+  --ui-accent: #65b99e;
+  --ui-accent-dark: #91d1bc;
+  --ui-danger: #ff9383;
+}
+
+@media (prefers-color-scheme: dark) {
+  [data-theme='system'][data-theme='system'] {
+    color-scheme: dark;
+    --green: #65b99e;
+    --muted: #9eafa9;
+    --border: #283a34;
+    --surface: #14211d;
+    --danger: #ff9383;
+    --ui-bg: #0d1613;
+    --ui-surface: #14211d;
+    --ui-surface-soft: #182620;
+    --ui-text: #edf4f2;
+    --ui-muted: #9eafa9;
+    --ui-line: #283a34;
+    --ui-line-strong: #40534c;
+    --ui-accent: #65b99e;
+    --ui-accent-dark: #91d1bc;
+    --ui-danger: #ff9383;
+  }
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  background: var(--ui-bg);
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(260px, 0.65fr);
+  gap: 24px;
+}
+
+.day-picker {
+  display: grid;
+  grid-template-columns: repeat(7, 42px);
+  gap: 8px;
+  margin: 18px 0;
+}
+
+.day-picker button,
+.theme-picker button {
+  border: 1px solid var(--ui-line-strong);
+  background: var(--ui-surface);
+  color: var(--ui-text);
+  font-weight: 700;
+}
+
+.day-picker button {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+}
+
+.day-picker button.active,
+.theme-picker button.active {
+  border-color: var(--ui-accent);
+  background: var(--ui-accent);
+  color: #fff;
+}
+
+.theme-picker {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.theme-picker button {
+  padding: 13px 16px;
+  border-radius: 8px;
+  text-align: left;
+}
+
+.settings-save {
+  margin-top: 4px;
+}
+
+.account-view-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 18px;
+  padding: 9px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--ui-line-strong);
+  background: transparent;
+  color: var(--ui-accent);
+  font-weight: 700;
+}
+
+.checkbox-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--ui-line-strong);
+  border-radius: 8px;
+  background: var(--ui-surface);
+}
+
+.checkbox-control input {
+  width: 19px;
+  height: 19px;
+  margin: 0;
+  accent-color: var(--ui-accent);
+}
+
+@media (max-width: 760px) {
+  .settings-grid {
+    grid-template-columns: 1fr;
+  }
+  .day-picker {
+    grid-template-columns: repeat(7, minmax(36px, 1fr));
+  }
+  .day-picker button {
+    width: 100%;
+    max-width: 42px;
+  }
 }
 
 /* Scenario planner */
@@ -839,12 +980,19 @@ a {
 }
 
 .brand-mark {
-  width: 32px;
+  width: 34px;
   height: 34px;
-  border-radius: 8px;
-  background: #d7e7dc;
-  color: #17372e;
-  font-size: 25px;
+  flex-basis: 34px;
+  border-radius: 0;
+  background: transparent;
+}
+
+.sidebar .brand-mark,
+.brand.light .brand-mark {
+  box-sizing: border-box;
+  padding: 3px;
+  border-radius: 9px;
+  background: #f4f7f3;
 }
 
 .brand-dot {
@@ -2368,8 +2516,6 @@ main {
   margin-bottom: 6px;
 }
 
-
-
 .account-card {
   min-height: 76px;
   padding: 12px 4px;
@@ -3282,5 +3428,45 @@ body,
     width: calc(100% - 20px);
     max-height: calc(100dvh - 20px);
     padding: 20px;
+  }
+}
+
+/* Native/PWA safe areas: no content beneath a notch or Android gesture bar. */
+@supports (padding: env(safe-area-inset-top)) {
+  .sidebar {
+    padding-top: calc(28px + env(safe-area-inset-top));
+    padding-bottom: calc(22px + env(safe-area-inset-bottom));
+    padding-left: calc(18px + env(safe-area-inset-left));
+  }
+
+  .topbar {
+    height: calc(72px + env(safe-area-inset-top));
+    padding-top: env(safe-area-inset-top);
+    padding-right: calc(32px + env(safe-area-inset-right));
+  }
+
+  main {
+    padding-right: calc(32px + env(safe-area-inset-right));
+    padding-bottom: calc(56px + env(safe-area-inset-bottom));
+  }
+
+  @media (max-width: 900px) {
+    .topbar {
+      padding-left: calc(20px + env(safe-area-inset-left));
+      padding-right: calc(20px + env(safe-area-inset-right));
+    }
+
+    main {
+      padding-left: calc(20px + env(safe-area-inset-left));
+      padding-right: calc(20px + env(safe-area-inset-right));
+    }
+  }
+
+  @media (max-width: 380px) {
+    .topbar,
+    main {
+      padding-left: calc(12px + env(safe-area-inset-left));
+      padding-right: calc(12px + env(safe-area-inset-right));
+    }
   }
 }

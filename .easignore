@@ -1,0 +1,20 @@
+node_modules/
+dist/
+coverage/
+*.log
+*.tsbuildinfo
+.local/
+
+# Nunca envie os ambientes privados da API e da web ao EAS.
+**/.env
+**/.env.*
+!**/.env.example
+
+# O app mobile usa apenas variaveis EXPO_PUBLIC_*, incorporadas ao bundle.
+!apps/mobile/.env
+
+apps/mobile/.expo/
+apps/mobile/android/
+apps/mobile/ios/
+apps/mobile/*.jks
+apps/mobile/*.keystore

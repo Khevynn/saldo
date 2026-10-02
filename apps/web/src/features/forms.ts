@@ -74,6 +74,8 @@ export function transactionForm(
   accounts: Row[],
   categories: Row[],
   existing?: Row,
+  expenseRolloverDay = 25,
+  transfers: Row[] = [],
 ): FormSpec {
   const fields: Field[] = [
     { name: 'description', label: 'Descrição', type: 'wide', value: existing?.description },
@@ -86,6 +88,29 @@ export function transactionForm(
       max: currentDate(),
     },
   ];
+  if (kind === 'income' || kind === 'expense')
+    fields.push({
+      name: 'reference_month',
+      label:
+        kind === 'income'
+          ? 'Mês em que este dinheiro será usado (opcional)'
+          : 'Mês a que esta despesa pertence (opcional)',
+      type: 'month',
+      required: false,
+      value:
+        existing?.reference_month?.slice(0, 7) ||
+        (kind === 'expense' && Number(currentDate().slice(8, 10)) >= expenseRolloverDay
+          ? (() => {
+              const date = new Date(`${currentDate().slice(0, 7)}-15T12:00:00Z`);
+              date.setUTCMonth(date.getUTCMonth() + 1);
+              return date.toISOString().slice(0, 7);
+            })()
+          : ''),
+      hint:
+        kind === 'income'
+          ? 'Use quando a receita entrou antes do mês cujo orçamento ela vai financiar.'
+          : 'Use quando uma despesa do próximo mês foi paga antecipadamente.',
+    });
   if (kind !== 'income')
     fields.push({
       name: 'source_id',
@@ -102,7 +127,33 @@ export function transactionForm(
       searchable: true,
       value: existing?.destination_id,
     });
-  if (kind === 'transfer') fields.push(value('received', 'Valor que entra', existing?.received));
+  if (kind === 'expense')
+    fields.push({
+      name: 'funding_transfer_id',
+      label: 'Transferência usada para pagar (opcional)',
+      options: transfers.map((transfer) => ({
+        value: transfer.id,
+        label: `${new Date(`${transfer.occurred_on}T12:00:00`).toLocaleDateString('pt-PT')} · ${transfer.source_name} → ${transfer.destination_name}`,
+      })),
+      searchable: true,
+      required: false,
+      value: existing?.funding_transfer_id,
+      hint: 'Use quando o dinheiro saiu de uma reserva e entrou nesta conta antes do pagamento.',
+    });
+  if (kind === 'transfer') {
+    fields.push({
+      name: 'has_loss',
+      label: 'Houve perda na transferência?',
+      type: 'checkbox',
+      value:
+        existing?.received && Number(existing.received) < Number(existing.amount) ? 'yes' : 'no',
+      hint: 'Marque somente quando o valor recebido foi menor que o valor enviado.',
+    });
+    fields.push({
+      ...value('received', 'Valor que entra', existing?.received),
+      visibleWhen: (d) => d.has_loss === 'yes',
+    });
+  }
   fields.push({
     name: 'category_id',
     label: kind === 'transfer' ? 'Categoria da perda (se houver)' : 'Categoria',
@@ -112,6 +163,7 @@ export function transactionForm(
     searchable: true,
     required: kind !== 'transfer',
     value: existing?.category_id,
+    visibleWhen: kind === 'transfer' ? (d) => d.has_loss === 'yes' : undefined,
   });
   return {
     title: `${existing ? 'Editar' : 'Nova'} ${kind === 'income' ? 'receita' : kind === 'expense' ? 'despesa' : 'transferência'}`,
@@ -122,27 +174,71 @@ export function transactionForm(
     path: existing ? `/transactions/${existing.id}` : '/transactions',
     method: existing ? 'PATCH' : 'POST',
     fields,
-    map: (d) => ({
-      ...d,
-      kind,
-      amount: decimal(d.amount),
-      received: d.received ? decimal(d.received) : null,
-      category_id: d.category_id || null,
-      ...(existing ? { version: existing.version } : {}),
-    }),
+    map: (d) => {
+      const { has_loss: _hasLoss, ...payload } = d;
+      return {
+        ...payload,
+        kind,
+        amount: decimal(d.amount),
+        received:
+          kind === 'transfer'
+            ? d.has_loss === 'yes'
+              ? decimal(d.received)
+              : decimal(d.amount)
+            : null,
+        category_id: kind === 'transfer' && d.has_loss !== 'yes' ? null : d.category_id || null,
+        reference_month: kind === 'income' || kind === 'expense' ? d.reference_month || null : null,
+        funding_transfer_id: kind === 'expense' ? d.funding_transfer_id || null : null,
+        ...(existing ? { version: existing.version } : {}),
+      };
+    },
   };
 }
-export const transactionCreateForm = (accounts: Row[], categories: Row[]): FormSpec => ({
+export const transactionCreateForm = (
+  accounts: Row[],
+  categories: Row[],
+  expenseRolloverDay = 25,
+  transfers: Row[] = [],
+): FormSpec => ({
   title: 'Nova movimentação',
   path: '/transactions',
   fields: [],
   variants: [
-    { value: 'expense', label: 'Despesa', spec: transactionForm('expense', accounts, categories) },
-    { value: 'income', label: 'Receita', spec: transactionForm('income', accounts, categories) },
+    {
+      value: 'expense',
+      label: 'Despesa',
+      spec: transactionForm(
+        'expense',
+        accounts,
+        categories,
+        undefined,
+        expenseRolloverDay,
+        transfers,
+      ),
+    },
+    {
+      value: 'income',
+      label: 'Receita',
+      spec: transactionForm(
+        'income',
+        accounts,
+        categories,
+        undefined,
+        expenseRolloverDay,
+        transfers,
+      ),
+    },
     {
       value: 'transfer',
       label: 'Transferência',
-      spec: transactionForm('transfer', accounts, categories),
+      spec: transactionForm(
+        'transfer',
+        accounts,
+        categories,
+        undefined,
+        expenseRolloverDay,
+        transfers,
+      ),
     },
   ],
 });

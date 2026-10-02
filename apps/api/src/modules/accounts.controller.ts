@@ -12,13 +12,39 @@ import {
 } from '../common/validation';
 import { FinanceStore, audit } from './finance.store';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { z } from 'zod';
 import Decimal from 'decimal.js';
 
 @Controller()
 export class AccountsController {
   constructor(@Inject(FinanceStore) private readonly store: FinanceStore) {}
   @Get('me') me(@UserId() user: string) {
-    return { id: user, currency: 'EUR', timezone: 'Europe/Lisbon' };
+    return this.store.read(
+      user,
+      async (db) =>
+        (
+          await rows(
+            db,
+            sql`SELECT id,currency,timezone,expense_rollover_day FROM users WHERE id=${user}`,
+          )
+        )[0],
+    );
+  }
+  @Patch('me') patchMe(@UserId() user: string, @Body() input: unknown) {
+    const data = parse(
+      z.object({ expense_rollover_day: z.number().int().min(1).max(31) }).strict(),
+      input,
+    );
+    return this.store.run(
+      user,
+      async (db) =>
+        (
+          await rows(
+            db,
+            sql`UPDATE users SET expense_rollover_day=${data.expense_rollover_day} WHERE id=${user} RETURNING id,currency,timezone,expense_rollover_day`,
+          )
+        )[0],
+    );
   }
   @Get('accounts') list(@UserId() user: string) {
     return this.store.read(user, (db) => this.store.balances(db, user));

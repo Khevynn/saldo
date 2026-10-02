@@ -3,7 +3,7 @@ import { sql } from 'drizzle-orm';
 import Decimal from 'decimal.js';
 import { z } from 'zod';
 import { UserId } from '../auth/auth';
-import { month, parse } from '../common/validation';
+import { date, month, parse } from '../common/validation';
 import { rows } from '../database/database.service';
 import { money, monthDate, shiftMonth, sum, today } from '../domain/money';
 import { FinanceStore } from './finance.store';
@@ -23,14 +23,29 @@ export class ReportingController {
     const m = parse(month, rawMonth || today().slice(0, 7));
     return this.report(user, m, false);
   }
-  private report(user: string, m: string, annual: boolean) {
-    const periodStart = annual ? m.slice(0, 4) + '-01-01' : m + '-01';
+  @Get('period') period(
+    @UserId() user: string,
+    @Query('from') rawFrom: string,
+    @Query('to') rawTo: string,
+  ) {
+    const range = parse(
+      z
+        .object({ from: date, to: date })
+        .refine((value) => value.from <= value.to, 'A data inicial deve ser anterior à final.'),
+      { from: rawFrom, to: rawTo },
+    );
+    return this.report(user, range.to.slice(0, 7), false, range);
+  }
+  private report(user: string, m: string, annual: boolean, range?: { from: string; to: string }) {
+    const periodStart = range?.from || (annual ? m.slice(0, 4) + '-01-01' : m + '-01');
+    const periodEnd = range?.to || monthDate(m, 31);
     return this.store.run(user, async (db) => {
-      const asOf = monthDate(m, 31) > today() ? today() : monthDate(m, 31);
+      const asOf = periodEnd > today() ? today() : periodEnd;
+      const flowDate = range ? sql`occurred_on` : sql`reference_month`;
       const accounts = await this.store.balances(db, user, asOf);
       const [flow] = await rows(
         db,
-        sql`SELECT coalesce(sum(amount) FILTER(WHERE kind='income'),0)::text AS income,coalesce(sum(amount) FILTER(WHERE kind='expense'),0)::text AS expense FROM cash_effects WHERE user_id=${user} AND occurred_on>=${periodStart}::date AND occurred_on<${shiftMonth(m, 1) + '-01'}::date`,
+        sql`SELECT coalesce(sum(amount) FILTER(WHERE kind='income'),0)::text AS income,coalesce(sum(amount) FILTER(WHERE kind='expense'),0)::text AS expense FROM cash_effects WHERE user_id=${user} AND ${flowDate}>=${periodStart}::date AND ${flowDate}<=${periodEnd}::date`,
       );
       const [debt] = await rows(
         db,
@@ -38,7 +53,7 @@ export class ReportingController {
       );
       const byCategory = await rows(
         db,
-        sql`SELECT c.id AS category_id,c.name,sum(e.amount)::text AS amount FROM cash_effects e JOIN categories c ON c.user_id=e.user_id AND c.id=e.category_id WHERE e.user_id=${user} AND e.kind='expense' AND e.occurred_on>=${periodStart}::date AND e.occurred_on<${shiftMonth(m, 1) + '-01'}::date GROUP BY c.id,c.name ORDER BY sum(e.amount) DESC`,
+        sql`SELECT c.id AS category_id,c.name,sum(e.amount)::text AS amount FROM cash_effects e JOIN categories c ON c.user_id=e.user_id AND c.id=e.category_id WHERE e.user_id=${user} AND e.kind='expense' AND ${flowDate}>=${periodStart}::date AND ${flowDate}<=${periodEnd}::date GROUP BY c.id,c.name ORDER BY sum(e.amount) DESC`,
       );
       const [start] = await rows(
         db,
@@ -47,7 +62,7 @@ export class ReportingController {
       const from = shiftMonth(m, -11);
       const flows = await rows(
         db,
-        sql`SELECT to_char(occurred_on,'YYYY-MM') AS month,coalesce(sum(amount) FILTER(WHERE kind='income'),0)::text AS income,coalesce(sum(amount) FILTER(WHERE kind='expense'),0)::text AS expense FROM cash_effects WHERE user_id=${user} AND occurred_on>=${from + '-01'}::date AND occurred_on<${shiftMonth(m, 1) + '-01'}::date GROUP BY 1 ORDER BY 1`,
+        sql`SELECT to_char(reference_month,'YYYY-MM') AS month,coalesce(sum(amount) FILTER(WHERE kind='income'),0)::text AS income,coalesce(sum(amount) FILTER(WHERE kind='expense'),0)::text AS expense FROM cash_effects WHERE user_id=${user} AND reference_month>=${from + '-01'}::date AND reference_month<${shiftMonth(m, 1) + '-01'}::date GROUP BY 1 ORDER BY 1`,
       );
       const evolution = [];
       for (let index = 0; index < 12; index++) {
@@ -94,10 +109,10 @@ export class ReportingController {
           ? totalSurplus.div(totalIncome).times(100).toFixed(1)
           : null,
         average_months: complete.length,
-        period: annual ? 'year' : 'month',
+        period: range ? 'custom' : annual ? 'year' : 'month',
         evolution,
         categories: byCategory,
-        budgets: annual ? [] : await this.planning.budget(db, user, m),
+        budgets: annual || range ? [] : await this.planning.budget(db, user, m),
       };
     });
   }

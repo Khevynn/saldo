@@ -24,10 +24,24 @@ function origins(name: string, required: boolean) {
   return values;
 }
 
+function databaseUrl() {
+  if (process.env.USE_DOCKER_DATABASE !== 'true') {
+    if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL não configurada.');
+    return process.env.DATABASE_URL;
+  }
+
+  const password = process.env.DOCKER_APP_DB_PASSWORD;
+  if (!password) throw new Error('DOCKER_APP_DB_PASSWORD não configurada.');
+  const database = new URL('postgresql://finance_app@127.0.0.1/finance');
+  database.port = String(integer('DOCKER_DB_PORT', 55433, 1, 65535));
+  database.password = password;
+  return database.toString();
+}
+
 export function databaseConfig() {
   const production = process.env.NODE_ENV === 'production';
-  if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL não configurada.');
-  const database = new URL(process.env.DATABASE_URL);
+  const connectionString = databaseUrl();
+  const database = new URL(connectionString);
   const tlsMode = database.searchParams.get('sslmode') || '';
   const privateDockerDatabase =
     process.env.ALLOW_PLAINTEXT_DATABASE_ON_PRIVATE_DOCKER_NETWORK === 'true' &&
@@ -42,6 +56,7 @@ export function databaseConfig() {
     );
   return {
     production,
+    connectionString,
     poolMax: integer('DB_POOL_MAX', 10, 1, 100),
     connectionTimeout: integer('DB_CONNECTION_TIMEOUT_MS', 5000, 500, 60000),
     idleTimeout: integer('DB_IDLE_TIMEOUT_MS', 30000, 1000, 600000),

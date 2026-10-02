@@ -16,7 +16,7 @@ import {
 import { sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { UserId } from '../auth/auth';
-import { id, month, parse, transactionInput } from '../common/validation';
+import { date, id, month, parse, transactionInput } from '../common/validation';
 import { rows } from '../database/database.service';
 import { shiftMonth, today } from '../domain/money';
 import { FinanceStore, audit, account } from './finance.store';
@@ -28,25 +28,56 @@ export class TransactionsController {
     const query = parse(
       z
         .object({
-          month: month.default(today().slice(0, 7)),
+          month: month.optional(),
+          from: date.optional(),
+          to: date.optional(),
           page: z.coerce.number().int().min(1).max(10000).default(1),
+          limit: z.coerce.number().int().min(1).max(500).default(50),
           account_id: id.optional(),
           category_id: id.optional(),
         })
         .strict(),
       input,
     );
+    if (!!query.from !== !!query.to)
+      throw new BadRequestException('Informe as datas inicial e final do período.');
+    const selectedMonth = query.month || today().slice(0, 7);
+    const from = query.from || `${selectedMonth}-01`;
+    const toExclusive = query.to
+      ? new Date(`${query.to}T12:00:00`)
+      : new Date(`${shiftMonth(selectedMonth, 1)}-01T12:00:00`);
+    if (query.to) toExclusive.setDate(toExclusive.getDate() + 1);
+    const to = toExclusive.toISOString().slice(0, 10);
+    const days = (toExclusive.getTime() - new Date(`${from}T12:00:00`).getTime()) / 86400000;
+    if (days <= 0 || days > 366 * 5)
+      throw new BadRequestException('Escolha um período válido de até cinco anos.');
     return this.store.read(user, (db) =>
       rows(
         db,
-        sql`SELECT t.*,s.name AS source_name,d.name AS destination_name,c.name AS category_name,count(*) OVER()::integer AS total_count
+        sql`SELECT t.*,s.name AS source_name,d.name AS destination_name,c.name AS category_name,
+        ft.description AS funding_transfer_description,ft.occurred_on AS funding_transfer_date,
+        count(*) OVER()::integer AS total_count
       FROM transactions t LEFT JOIN accounts s ON s.user_id=t.user_id AND s.id=t.source_id
       LEFT JOIN accounts d ON d.user_id=t.user_id AND d.id=t.destination_id
       LEFT JOIN categories c ON c.user_id=t.user_id AND c.id=t.category_id
-      WHERE t.user_id=${user} AND t.deleted_at IS NULL AND t.occurred_on>=${query.month + '-01'}::date AND t.occurred_on<${shiftMonth(query.month, 1) + '-01'}::date
+      LEFT JOIN transactions ft ON ft.user_id=t.user_id AND ft.id=t.funding_transfer_id
+      WHERE t.user_id=${user} AND t.deleted_at IS NULL AND t.occurred_on>=${from}::date AND t.occurred_on<${to}::date
       ${query.account_id ? sql`AND (t.source_id=${query.account_id} OR t.destination_id=${query.account_id})` : sql``}
       ${query.category_id ? sql`AND (t.category_id=${query.category_id} OR EXISTS(SELECT 1 FROM cash_effects e WHERE e.user_id=t.user_id AND e.transaction_id=t.id AND e.category_id=${query.category_id}))` : sql``}
-      ORDER BY t.occurred_on DESC,t.created_at DESC,t.id LIMIT 50 OFFSET ${(query.page - 1) * 50}`,
+      ORDER BY t.occurred_on DESC,t.created_at DESC,t.id LIMIT ${query.limit} OFFSET ${(query.page - 1) * query.limit}`,
+      ),
+    );
+  }
+  @Get('transfers') transfers(@UserId() user: string) {
+    return this.store.read(user, (db) =>
+      rows(
+        db,
+        sql`SELECT t.*,s.name AS source_name,d.name AS destination_name
+        FROM transactions t
+        JOIN accounts s ON s.user_id=t.user_id AND s.id=t.source_id
+        JOIN accounts d ON d.user_id=t.user_id AND d.id=t.destination_id
+        WHERE t.user_id=${user} AND t.kind='transfer' AND t.deleted_at IS NULL
+        ORDER BY t.occurred_on DESC,t.created_at DESC LIMIT 200`,
       ),
     );
   }
@@ -95,7 +126,7 @@ export class TransactionsController {
       await this.store.validateTransaction(db, user, data);
       const [result] = await rows(
         db,
-        sql`UPDATE transactions SET kind=${data.kind},description=${data.description},source_id=${data.source_id || null},destination_id=${data.destination_id || null},amount=${data.amount},received=${data.received || null},category_id=${data.category_id || null},category_kind=${data.category_id ? (data.kind === 'income' ? 'income' : 'expense') : null},occurred_on=${data.occurred_on},version=version+1,updated_at=now() WHERE user_id=${user} AND id=${transactionId} RETURNING *`,
+        sql`UPDATE transactions SET kind=${data.kind},description=${data.description},source_id=${data.source_id || null},destination_id=${data.destination_id || null},amount=${data.amount},received=${data.received || null},category_id=${data.category_id || null},category_kind=${data.category_id ? (data.kind === 'income' ? 'income' : 'expense') : null},occurred_on=${data.occurred_on},reference_month=${data.reference_month ? data.reference_month + '-01' : null},funding_transfer_id=${data.funding_transfer_id || null},version=version+1,updated_at=now() WHERE user_id=${user} AND id=${transactionId} RETURNING *`,
       );
       await audit(db, user, 'transaction', transactionId, 'update', before, result);
       return result;

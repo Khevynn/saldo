@@ -13,7 +13,14 @@ import {
 } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { UserId } from '../auth/auth';
-import { cardInput, id, invoicePayment, parse, purchaseInput } from '../common/validation';
+import {
+  cardInput,
+  id,
+  invoicePatch,
+  invoicePayment,
+  parse,
+  purchaseInput,
+} from '../common/validation';
 import { Db, rows } from '../database/database.service';
 import {
   dueDate,
@@ -116,9 +123,34 @@ export class CardsController {
           coalesce(sum(s.amount) FILTER(WHERE p.deleted_at IS NULL AND s.settled_before_tracking),0)::text AS historical_amount
       FROM invoices i JOIN cards c ON c.user_id=i.user_id AND c.id=i.card_id
       LEFT JOIN installments s ON s.user_id=i.user_id AND s.invoice_id=i.id LEFT JOIN purchases p ON p.user_id=s.user_id AND p.id=s.purchase_id
-      WHERE i.user_id=${user} GROUP BY i.id,c.name ORDER BY i.due_on DESC`,
+      WHERE i.user_id=${user} GROUP BY i.id,c.name
+      HAVING i.payment_id IS NOT NULL OR count(s.id) FILTER(WHERE p.deleted_at IS NULL) > 0
+      ORDER BY i.due_on DESC`,
       ),
     );
+  }
+  @Patch('invoices/:id') editInvoice(
+    @UserId() user: string,
+    @Param('id') rawId: string,
+    @Body() input: unknown,
+  ) {
+    const invoiceId = parse(id, rawId),
+      data = parse(invoicePatch, input);
+    return this.store.run(user, async (db) => {
+      const [before] = await rows(
+        db,
+        sql`SELECT * FROM invoices WHERE user_id=${user} AND id=${invoiceId} FOR UPDATE`,
+      );
+      if (!before) throw new NotFoundException('Fatura não encontrada.');
+      if (before.payment_id)
+        throw new BadRequestException('Reabra o pagamento antes de editar esta fatura.');
+      const [result] = await rows(
+        db,
+        sql`UPDATE invoices SET closes_on=${data.closes_on},due_on=${data.due_on} WHERE user_id=${user} AND id=${invoiceId} RETURNING *`,
+      );
+      await audit(db, user, 'invoice', invoiceId, 'update', before, result);
+      return result;
+    });
   }
   @Get('invoices/:id') invoice(@UserId() user: string, @Param('id') rawId: string) {
     const invoiceId = parse(id, rawId);
@@ -260,6 +292,11 @@ export class CardsController {
       await db.execute(
         sql`UPDATE purchases SET deleted_at=now() WHERE user_id=${user} AND id=${purchaseId}`,
       );
+      await db.execute(
+        sql`DELETE FROM installments WHERE user_id=${user} AND purchase_id=${purchaseId}`,
+      );
+      await db.execute(sql`DELETE FROM invoices i WHERE i.user_id=${user} AND i.payment_id IS NULL
+        AND NOT EXISTS (SELECT 1 FROM installments s WHERE s.user_id=i.user_id AND s.invoice_id=i.id)`);
       await audit(db, user, 'purchase', purchaseId, 'delete', before, null);
       return { deleted: true };
     });
@@ -290,6 +327,7 @@ export class CardsController {
           if (
             existing.source_id !== d.account_id ||
             existing.occurred_on !== d.occurred_on ||
+            (existing.reference_month?.slice(0, 7) || null) !== (d.reference_month || null) ||
             !new Decimal(existing.amount).eq(d.expected_amount)
           )
             throw new ConflictException(
@@ -311,7 +349,7 @@ export class CardsController {
           throw new BadRequestException('Pagamento anterior a uma compra da fatura.');
         const [payment] = await rows(
           db,
-          sql`INSERT INTO transactions(user_id,kind,description,source_id,amount,occurred_on) VALUES(${user},'card_payment',${'Pagamento de fatura ' + invoice.month.slice(0, 7)},${d.account_id},${total.amount},${d.occurred_on}) RETURNING *`,
+          sql`INSERT INTO transactions(user_id,kind,description,source_id,amount,occurred_on,reference_month) VALUES(${user},'card_payment',${'Pagamento de fatura ' + invoice.month.slice(0, 7)},${d.account_id},${total.amount},${d.occurred_on},${d.reference_month ? d.reference_month + '-01' : null}) RETURNING *`,
         );
         await db.execute(
           sql`UPDATE invoices SET payment_id=${payment.id} WHERE user_id=${user} AND id=${invoiceId}`,

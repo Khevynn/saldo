@@ -18,7 +18,7 @@ export class DatabaseService implements OnModuleDestroy, OnModuleInit {
   private readonly config = databaseConfig();
   private readonly logger = new Logger(DatabaseService.name);
   private readonly pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
+    connectionString: this.config.connectionString,
     max: this.config.poolMax,
     connectionTimeoutMillis: this.config.connectionTimeout,
     idleTimeoutMillis: this.config.idleTimeout,
@@ -39,7 +39,6 @@ export class DatabaseService implements OnModuleDestroy, OnModuleInit {
   }
 
   async onModuleInit() {
-    if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL não configurada.');
     let role: { name: string; rolsuper: boolean; rolbypassrls: boolean };
     try {
       [role] = await rows(

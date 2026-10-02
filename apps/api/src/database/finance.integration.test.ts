@@ -126,6 +126,11 @@ describe('financial integration with PostgreSQL engine and runtime RLS role', ()
     const report = await reports.overview(user, '2026-01');
     expect(report.expense).toBe('40.00');
     expect(report.total).toBe('1060.00');
+    const day = await reports.period(user, '2026-01-10', '2026-01-10');
+    expect(day.income).toBe('100.00');
+    expect(day.expense).toBe('40.00');
+    expect(day.period).toBe('custom');
+    expect(() => reports.period(user, '2026-01-11', '2026-01-10')).toThrow();
   });
   it('enforces tenant isolation even with a deliberately unfiltered query', async () => {
     expect((await accounts.list(other)).map((a) => a.id)).toEqual([foreignAccount]);
@@ -238,6 +243,120 @@ describe('financial integration with PostgreSQL engine and runtime RLS role', ()
       ),
     ).toBe(true);
     await planning.toggle(user, intervalRule.id, { active: false });
+  });
+  it('soft-deletes a recurrence while preserving its confirmed history', async () => {
+    const historicalAccount = await accounts.create(user, {
+      name: 'Conta histórica da recorrência',
+      nature: 'bank',
+      purpose: 'available',
+      opening_balance: '100',
+      opening_date: '2025-01-01',
+    });
+    const rule = await planning.createRecurrence(user, {
+      description: 'Recorrência removível',
+      kind: 'expense',
+      account_id: historicalAccount.id,
+      category_id: expense,
+      amount: '12',
+      expected_day: 10,
+      starts_on: '2025-06-01',
+    });
+    const june = await planning.occurrences(user, '2025-06');
+    const confirmedOccurrence = june.find((row) => row.recurrence_id === rule.id)!;
+    await planning.confirm(user, confirmedOccurrence.id, randomUUID(), {
+      account_id: historicalAccount.id,
+      amount: '12',
+      occurred_on: '2025-06-10',
+    });
+    expect(
+      (await planning.occurrences(user, '2025-07')).some((row) => row.recurrence_id === rule.id),
+    ).toBe(true);
+
+    await planning.deleteRecurrence(user, rule.id);
+
+    expect((await planning.recurrences(user)).some((row) => row.id === rule.id)).toBe(false);
+    expect(
+      (await planning.occurrences(user, '2025-06')).some(
+        (row) => row.recurrence_id === rule.id && row.state === 'confirmed',
+      ),
+    ).toBe(true);
+    expect(
+      (await planning.occurrences(user, '2025-07')).some((row) => row.recurrence_id === rule.id),
+    ).toBe(false);
+  });
+  it('lists transactions and recurring occurrences across a selected period', async () => {
+    const periodTransactions = await transactions.list(user, {
+      from: '2026-01-10',
+      to: '2026-01-11',
+      page: 1,
+    });
+    expect(periodTransactions.length).toBeGreaterThan(0);
+    expect(
+      periodTransactions.every(
+        (transaction) =>
+          transaction.occurred_on >= '2026-01-10' && transaction.occurred_on <= '2026-01-11',
+      ),
+    ).toBe(true);
+
+    const periodOccurrences = await planning.occurrences(
+      user,
+      undefined,
+      '2026-02-01',
+      '2026-04-30',
+    );
+    expect(periodOccurrences.some((occurrence) => occurrence.due_on === '2026-02-28')).toBe(true);
+    expect(
+      periodOccurrences.every(
+        (occurrence) => occurrence.due_on >= '2026-02-01' && occurrence.due_on <= '2026-04-30',
+      ),
+    ).toBe(true);
+  });
+  it('links a funding transfer to an expense without duplicating its cash effect', async () => {
+    const before = await reports.overview(user, '2026-05');
+    const funding = await transactions.create(user, randomUUID(), {
+      kind: 'transfer',
+      description: 'Resgate da reserva',
+      source_id: destination,
+      destination_id: source,
+      amount: '50',
+      received: '50',
+      category_id: null,
+      occurred_on: '2026-05-02',
+      reference_month: null,
+      funding_transfer_id: null,
+    });
+    const expenseTransaction = await transactions.create(user, randomUUID(), {
+      kind: 'expense',
+      description: 'Conta paga com a reserva',
+      source_id: source,
+      destination_id: null,
+      amount: '20',
+      received: null,
+      category_id: expense,
+      occurred_on: '2026-05-03',
+      reference_month: null,
+      funding_transfer_id: funding.id,
+    });
+    expect(expenseTransaction.funding_transfer_id).toBe(funding.id);
+    expect((await transactions.transfers(user)).some((row) => row.id === funding.id)).toBe(true);
+    const after = await reports.overview(user, '2026-05');
+    expect(Number(after.expense) - Number(before.expense)).toBe(20);
+    await expect(
+      transactions.create(user, randomUUID(), {
+        kind: 'expense',
+        description: 'Conta incompatível',
+        source_id: destination,
+        destination_id: null,
+        amount: '5',
+        received: null,
+        category_id: expense,
+        occurred_on: '2026-05-03',
+        reference_month: null,
+        funding_transfer_id: funding.id,
+      }),
+    ).rejects.toThrow('destino a conta usada para pagar');
+    await transactions.remove(user, expenseTransaction.id, '1');
+    await transactions.remove(user, funding.id, '1');
   });
   it('keeps future plans isolated from real balances', async () => {
     const before = await balance(source);
@@ -562,6 +681,11 @@ describe('financial integration with PostgreSQL engine and runtime RLS role', ()
     expect(actions).toEqual(
       expect.arrayContaining(['save-future', 'save-month', 'close', 'remove']),
     );
+    expect(
+      (await planning.budgetRange(user, '2026-01-01', '2026-03-31')).find(
+        (budget) => budget.category_id === expense,
+      ),
+    ).toMatchObject({ budget: '650.00', budget_scope: 'range' });
   });
   it('edits future recurring forecasts without changing past occurrences or real balances', async () => {
     const [rule] = await planning.recurrences(user),
@@ -635,5 +759,35 @@ describe('financial integration with PostgreSQL engine and runtime RLS role', ()
     );
     await accounts.patch(user, source, { opening_balance: '1000' });
     expect(await balance(source)).toBe(before);
+  });
+  it('keeps salary on its effective balance date and reports it in its reference month', async () => {
+    const septemberBefore = await reports.overview(user, '2026-09');
+    const octoberBefore = await reports.overview(user, '2026-10');
+    const balanceBefore = Number(await balance(source));
+    const salary = await transactions.create(user, randomUUID(), {
+      kind: 'income',
+      description: 'Salário de outubro',
+      destination_id: source,
+      category_id: income,
+      amount: '777',
+      occurred_on: '2026-09-28',
+      reference_month: '2026-10',
+    });
+    expect(salary.reference_month).toBe('2026-10-01');
+    expect(Number(await balance(source)) - balanceBefore).toBe(777);
+    expect((await reports.overview(user, '2026-09')).income).toBe(septemberBefore.income);
+    expect(
+      Number((await reports.overview(user, '2026-10')).income) - Number(octoberBefore.income),
+    ).toBe(777);
+    const earlyExpense = await transactions.create(user, randomUUID(), {
+      kind: 'expense',
+      description: 'Despesa de outubro paga antecipadamente',
+      source_id: source,
+      category_id: expense,
+      amount: '1',
+      occurred_on: '2026-09-28',
+      reference_month: '2026-10',
+    });
+    expect(earlyExpense.reference_month).toBe('2026-10-01');
   });
 });

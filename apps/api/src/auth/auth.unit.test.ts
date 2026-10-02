@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createPublicKey, generateKeyPairSync } from 'node:crypto';
-import { clerkJwtKey } from './auth';
+import { clerkJwtKey, validClerkSessionClaims } from './auth';
 
 describe('clerkJwtKey', () => {
   it('mantém uma chave PEM e converte quebras escapadas', () => {
@@ -18,5 +18,33 @@ describe('clerkJwtKey', () => {
 
   it('não configura uma chave vazia', () => {
     expect(clerkJwtKey('')).toBeUndefined();
+  });
+});
+
+describe('validClerkSessionClaims', () => {
+  const parties = ['https://saldo.example', 'https://mobile.saldo.example'];
+
+  it('aceita sessão nativa assinada sem origem de navegador', () => {
+    expect(validClerkSessionClaims({ sub: 'user_1', sid: 'sess_1' }, parties)).toBe(true);
+  });
+
+  it('continua validando a origem quando azp está presente', () => {
+    expect(
+      validClerkSessionClaims(
+        { sub: 'user_1', sid: 'sess_1', azp: 'https://mobile.saldo.example' },
+        parties,
+      ),
+    ).toBe(true);
+    expect(
+      validClerkSessionClaims(
+        { sub: 'user_1', sid: 'sess_1', azp: 'https://malicioso.example' },
+        parties,
+      ),
+    ).toBe(false);
+  });
+
+  it('rejeita sessão sem usuário ou sem identificador de sessão', () => {
+    expect(validClerkSessionClaims({ sid: 'sess_1' }, parties)).toBe(false);
+    expect(validClerkSessionClaims({ sub: 'user_1' }, parties)).toBe(false);
   });
 });

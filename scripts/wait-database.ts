@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { Pool } from 'pg';
 
 async function main() {
-  const config = parseEnv(await readFile('.env', 'utf8'));
+  const config = parseEnv(await readFile('apps/api/.env', 'utf8'));
   const pool = new Pool({ connectionString: config.DATABASE_URL, connectionTimeoutMillis: 1000 });
   try {
     for (let attempt = 0; attempt < 30; attempt++) {

@@ -1,175 +1,146 @@
-# Saldo: Controle financeiro pessoal
+# Saldo
 
-Aplicativo individual de finanças em EUR, com React/TypeScript, API REST NestJS, PostgreSQL, Drizzle e Clerk. Movimentações realizadas, previsões e dívidas são conceitos separados.
+Monorepo com três aplicações independentes:
 
-## O que está implementado
+```text
+apps/
+├── api/       API NestJS e PostgreSQL
+├── mobile/    aplicativo React Native com Expo
+└── web/       frontend React com Vite
+```
 
-- Contas e cofrinhos, abertura com data e saldo calculado.
-- Receitas, despesas, transferências comuns e com perda.
-- Edição com controle de versão, exclusão lógica e auditoria.
-- Categorias individuais editáveis e arquiváveis.
-- Recorrências configuráveis de 1 a 24 meses, edição isolada ou das próximas previsões, confirmação com valor/data reais, ignorar/reabrir e vínculo com lançamento existente.
-- Horizontes futuros para simular mudança, viagem, estudo, compra ou projeto sem alterar saldos, orçamento ou fluxo realizado.
-- Orçamento padrão contínuo por categoria, exceções mensais auditadas, realizado, previsto e parcelas pendentes.
-- Metas cujo progresso deriva do saldo do cofrinho.
-- Cartões, compras parceladas, faturas e pagamento integral.
-- Dashboard mensal/anual, evolução de contas, receitas, despesas, médias e dívida pendente.
-- Isolamento por usuário no backend e no PostgreSQL (RLS), chaves estrangeiras compostas e idempotência.
+Cada aplicação possui seu próprio arquivo de ambiente. Não crie `.env` na raiz.
 
-Esta é a primeira implementação local e ainda não está publicada. Os dados financeiros usados nos testes são sintéticos e não são cadastrados no banco da aplicação.
+## Configuração
 
-## Requisitos
+Crie os arquivos locais a partir dos exemplos:
 
-- Node.js 22.12+ (verificado com Node 24).
-- PostgreSQL 17+; Docker é uma alternativa local.
-- Instância Clerk com cadastro aberto e verificação obrigatória de e-mail.
+```powershell
+Copy-Item apps/api/.env.example apps/api/.env
+Copy-Item apps/web/.env.example apps/web/.env
+Copy-Item apps/mobile/.env.example apps/mobile/.env
+```
 
-## Executar localmente
+- `apps/api/.env`: banco, Clerk secreto, CORS e infraestrutura.
+- `apps/web/.env`: somente variáveis públicas `VITE_*`.
+- `apps/mobile/.env`: somente variáveis públicas `EXPO_PUBLIC_*`.
 
-### Caminho simples, sem Docker
+Nunca coloque `CLERK_SECRET_KEY` nos arquivos da web ou do mobile.
 
-O projeto inclui PostgreSQL portátil como dependência de desenvolvimento. Ele não instala serviço no Windows, escuta somente em loopback e mantém os dados em `.local/development-postgres`.
+## Instalação e desenvolvimento
 
-```sh
-npm ci
+```powershell
+npm install
 npm run setup:local
-# Preencha as duas chaves Clerk em .env.
 npm run dev:local
 ```
 
-Se não houver `.env`, a preparação cria um com senhas locais aleatórias e porta 55432. Um arquivo existente é preservado. Depois disso, edite somente as configurações Clerk; não substitua o arquivo pelo `.env.example`, pois isso descartaria as credenciais aleatórias do banco. Para ajustar somente as URLs de banco a essa porta: `npm run setup:local -- --port=55432`.
+O site abre em `http://127.0.0.1:5173` e a API em `http://127.0.0.1:3000`.
 
-`setup:local` aplica migrations, provisiona o usuário da API e encerra o banco. `dev:local` inicia banco, API e frontend. Encerrar o comando para os processos, preservando os dados. Se houver outro frontend aberto na porta 5173, encerre-o antes de iniciar o conjunto.
+Para iniciar apenas o aplicativo móvel:
 
-### PostgreSQL já instalado ou Docker
-
-1. Instale as dependências: `npm ci`.
-2. Copie `.env.example` para `.env` na raiz.
-3. Configure `DATABASE_ADMIN_URL` (migrations), `DATABASE_URL` (API) e `APP_DB_PASSWORD`. As duas URLs devem apontar ao mesmo banco. A API exige o usuário `finance_app`; não use `postgres` nela.
-4. Se usar Docker: `docker compose up -d`.
-5. Execute `npm run db:migrate` com a credencial administrativa. As migrations são incrementais, transacionais e verificadas por hash; não altere migrations já aplicadas.
-6. Execute `npm run db:provision`. Esse comando habilita login para `finance_app` com `APP_DB_PASSWORD` (mínimo 16 caracteres). Use a mesma senha, codificada para URL se necessário, em `DATABASE_URL`.
-7. Configure `CLERK_SECRET_KEY` e `VITE_CLERK_PUBLISHABLE_KEY` da **mesma instância** Clerk. A chave secreta nunca deve usar prefixo `VITE_`.
-8. Em `CLERK_AUTHORIZED_PARTIES`, inclua a origem exata do frontend, por exemplo `http://localhost:5173,http://127.0.0.1:5173`. Configure `WEB_ORIGIN` com essas mesmas origens.
-9. No Clerk, habilite cadastro aberto, autenticação por e-mail e verificação do e-mail. Não há allowlist nem convites no código.
-10. Execute `npm run dev`. Frontend: `http://localhost:5173`. API: `http://localhost:3000/api`.
-
-### Aplicação completa no Docker
-
-Este modo cria um ambiente isolado com PostgreSQL, migrations, API compilada e frontend React servido por Nginx. Ele não utiliza nem altera o PostgreSQL portátil em `.local/development-postgres`.
-
-1. Instale e inicie o Docker Desktop.
-2. Mantenha `CLERK_SECRET_KEY` e `VITE_CLERK_PUBLISHABLE_KEY` preenchidas no `.env` da raiz.
-3. No Clerk, permita `http://localhost:8080` e `http://127.0.0.1:8080` como origens locais.
-4. Execute:
-
-```sh
-npm run docker:up
+```powershell
+npm run mobile:native:start
 ```
 
-Abra `http://localhost:8080`. O PostgreSQL fica disponível somente no computador local em `localhost:55433`. A API não expõe porta própria; o Nginx encaminha `/api` internamente.
+Se o celular não estiver na mesma rede do computador, use o túnel:
 
-Para conferir os containers e acompanhar logs:
-
-```sh
-docker compose ps
-npm run docker:logs
+```powershell
+npm run mobile:native:start:tunnel
 ```
 
-Para parar sem perder os dados do banco Docker:
+Com o development build instalado, alterações em TypeScript, estilos e imagens aparecem por Fast
+Refresh, sem gerar outro APK.
 
-```sh
-npm run docker:down
+Para gerar esse development build uma única vez:
+
+```powershell
+npm run mobile:native:dev-build
 ```
 
-Ao subir novamente, as migrations já aplicadas são verificadas por hash e ignoradas com segurança. O volume `saldo-local_postgres_data` preserva os dados. Somente use `docker compose down -v` quando quiser apagar definitivamente o banco criado pelo Docker.
+## APK e AAB
 
-As senhas Docker padrão servem apenas ao teste local e os serviços escutam em loopback. Para disponibilização pública, use segredos próprios, TLS e um PostgreSQL gerenciado conforme `docs/operations.md`.
+O projeto Expo/EAS existe somente em `apps/mobile`. Não execute `eas build` na raiz.
 
-### Acesso pelo domínio com Cloudflare Tunnel
+APK instalável para testes:
 
-O arquivo `compose.cloudflare.yaml` adiciona `cloudflared` ao ambiente e mantém Nginx, API e PostgreSQL fora da Internet. A conexão é iniciada de dentro do Docker para a Cloudflare, sem redirecionamento de portas no roteador.
-
-Defina no `.env`:
-
-```env
-PUBLIC_APP_URL=https://saldo.example.com
-CLOUDFLARE_TUNNEL_TOKEN=token-do-tunel
-CLERK_JWT_KEY="-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----"
+```powershell
+npm run mobile:native:apk
 ```
 
-`PUBLIC_APP_URL` deve ser a origem HTTPS exata, sem barra no final. Use chaves Clerk da instância ligada ao domínio. No painel Clerk, copie a chave PEM em API Keys, Show JWT public key.
+Bundle para a Play Store:
 
-No painel Cloudflare, crie um túnel gerenciado remotamente e uma rota de aplicação publicada. Configure o hostname desejado e use este endereço como Service URL:
-
-```text
-http://web:8080
+```powershell
+npm run mobile:native:aab
 ```
 
-Dentro do container do túnel, `localhost` apontaria para o próprio `cloudflared`; por isso o destino precisa ser o nome Docker `web`.
+O arquivo `.easignore` da raiz inclui apenas o `.env` público do mobile no upload local ao EAS. Em
+CI, configure as mesmas variáveis no ambiente do projeto EAS.
 
-Suba o conjunto público:
+## Atualizações sem novo APK
 
-```sh
-npm run docker:public:up
-npm run docker:public:logs
+Mudanças em JavaScript/TypeScript, UI e assets podem ser enviadas ao APK de testes pelo canal
+`preview`:
+
+```powershell
+npm run mobile:update:preview
 ```
 
-Pare sem remover o banco:
+O comando pede uma mensagem para identificar a atualização. O aplicativo verifica, baixa e aplica a
+nova versão automaticamente ao ser aberto. Use `mobile:update:production` somente para uma versão já
+validada que deva chegar aos usuários de produção.
 
-```sh
-npm run docker:public:down
-```
-
-O computador, o Docker Desktop e a conexão com a Internet precisam permanecer ativos. Não exponha as portas 8080, 3000, 5432 ou 55433 no roteador. O token do túnel permite executar uma réplica e deve permanecer somente no `.env`.
-
-Sem a chave pública, a interface apresenta instruções de configuração. A API falha no início caso faltem configuração de autenticação, banco ou papel seguro. Não há bypass de autenticação em desenvolvimento.
-
-O SDK faz autenticação no frontend; o backend valida assinatura, expiração, origem autorizada e sessão, e consulta o usuário Clerk para exigir e-mail principal verificado e rejeitar usuários banidos/removidos. Essa consulta é intencional nesta versão; indisponibilidade do provedor pode impedir acesso. O adaptador de identidade é substituível, mas não existe provedor alternativo implementado.
+Um APK/AAB novo continua obrigatório ao alterar dependências nativas, plugins Expo, permissões,
+ícone, splash screen, identificador do pacote ou versão do runtime.
 
 ## Verificações
 
-```sh
+```powershell
 npm run typecheck
 npm test
 npm run build
 ```
 
-Os testes de integração aplicam todas as migrations em PGlite, um motor PostgreSQL embarcado, e executam operações como o papel `finance_app`. Não é um mock de SQL. Os testes HTTP usam um adaptador de identidade exclusivo da suíte; os de interface usam respostas sintéticas. Nenhum desses adaptadores está ligado à execução normal da aplicação.
+## Publicação cotidiana
 
-`npm run test:postgres` cria e encerra um PostgreSQL portátil isolado. A validação com PostgreSQL 18.4 passou com múltiplas conexões: 12 escritas idempotentes simultâneas, 10 confirmações da mesma ocorrência, oito pagamentos da mesma fatura, conflito de edição, 20 alternâncias de usuários e rollback. Esse teste também aplica o runner de migrations duas vezes e provisiona a credencial real da API.
+Para validar o projeto, publicar o Android no canal de produção do EAS e depois reconstruir o
+Docker local, use um único comando na raiz:
 
-Ainda é necessário validar a instância real Clerk e realizar um ciclo real de backup/restauração antes de disponibilizar a aplicação. O pacote portátil não inclui pg_dump/pg_restore; use as ferramentas do PostgreSQL ou backup gerenciado do destino de hospedagem. Testar concorrência local não substitui o piloto no ambiente de produção.
+```powershell
+npm run publish:all
+```
 
-### Revisão visual sem credenciais
+Uma mensagem opcional pode ser informada depois de `--`:
 
-`npm run preview:ui` abre um servidor de teste em `http://127.0.0.1:5174`, com dados sintéticos e somente leitura. Ele usa configuração Vite separada; o adaptador de teste não entra no build do produto. Desktop, navegação móvel e modal de confirmação foram inspecionados no navegador. A marca “TESTE VISUAL” identifica esse ambiente.
+```powershell
+npm run publish:all -- "Ajustes de cartões e movimentações"
+```
 
-## Organização
+O comando verifica as migrations antes de fazer qualquer publicação. Se houver mudança de banco
+pendente, ele para imediatamente para que o fluxo com backup e validação seja executado manualmente.
+Para testar apenas essa proteção, sem publicar, use `npm run publish:all -- --check`.
 
-- `apps/api/src/auth`: adaptador Clerk e identidade interna.
-- `apps/api/src/modules`: módulos financeiros, regras de escrita e relatórios.
-- `apps/api/src/domain`: dinheiro e calendário.
-- `apps/api/src/database`: execução Drizzle, contexto de usuário, migrations e provisionamento.
-- `apps/api/migrations`: evolução versionada do PostgreSQL.
-- `apps/web/src/features`: telas e formulários.
-- `apps/web/src/components`: componentes de interface.
-- `docs/architecture.md`: decisões, fórmulas e limites.
-- `docs/operations.md`: execução e cuidados operacionais.
+## Docker
 
-As migrations SQL são a fonte do esquema; Drizzle executa consultas SQL parametrizadas. Não use `drizzle-kit push` para modificar o banco fora desse histórico.
+Os comandos Docker carregam `apps/api/.env` e `apps/web/.env` explicitamente:
 
-## Limites desta versão
+```powershell
+npm run docker:up
+npm run docker:logs
+npm run docker:down
+```
 
-- Somente EUR e regime de caixa.
-- Cartão com pagamento integral, sem rotativo, juros automáticos ou pagamento parcial.
-- Transferências com valores recebidos menores ou iguais aos enviados; sem câmbio ou ganhos.
-- Recorrências entre 1 e 24 meses, sem confirmação automática e sem rateio de pagamentos parciais.
-- Datas de acompanhamento entre 2000 e 2100.
-- Um objetivo ativo por conta reservada.
-- Planejamento estratégico, integrações bancárias, investimentos e compartilhamento não estão incluídos.
-- Alterações em compras com faturas pagas exigem reabrir os pagamentos antes de excluir/recriar a compra. Isso preserva as alocações das despesas pagas.
-- Alteração de dia de fechamento/vencimento do cartão e recuperação de registros excluídos ainda não possuem fluxos de interface.
-- A interface usa componentes próprios e CSS com tokens; não foi introduzido um framework adicional de componentes para os poucos controles desta primeira versão.
+Publicação com Cloudflare Tunnel:
 
-Não foi realizada publicação, criação de conta externa ou configuração automática do Clerk.
+```powershell
+npm run docker:public:up
+npm run docker:public:logs
+npm run docker:public:down
+```
+
+## Documentação
+
+- [API](docs/api.md)
+- [Arquitetura](docs/architecture.md)
+- [Operações](docs/operations.md)
+- [Android e Expo](docs/react-native-android.md)

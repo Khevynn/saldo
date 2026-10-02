@@ -1,5 +1,5 @@
 import Decimal from 'decimal.js';
-import { Fragment, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import {
   ArrowLeftRight,
   ArrowLeft,
@@ -36,11 +36,14 @@ import {
   LoadState,
   PageHeader,
   Panel,
-  PeriodNavigator,
+  PeriodSelector,
   Progress,
+  periodBounds,
+  type DateRange,
   type FormSpec,
+  type PeriodMode,
 } from '../components/ui';
-import { currentDate, dateLabel, euro, useData, type Row } from '../lib/api';
+import { currentDate, dateLabel, euro, useData, useSave, type Row } from '../lib/api';
 import {
   accountForm,
   accountOptions,
@@ -63,8 +66,92 @@ type Props = {
   open: (form: FormSpec) => void;
   accounts: Row[];
   categories: Row[];
+  expenseRolloverDay?: number;
+  theme?: 'system' | 'light' | 'dark';
+  setTheme?: (theme: 'system' | 'light' | 'dark') => void;
   openPurchase?: (spec: PurchaseEditorSpec) => void;
 };
+
+function suggestedReferenceMonth(date: string, rolloverDay = 25) {
+  const year = Number(date.slice(0, 4));
+  const month = Number(date.slice(5, 7));
+  const day = Number(date.slice(8, 10));
+  const monthIndex = year * 12 + month - 1 + (day >= rolloverDay ? 1 : 0);
+  return `${Math.floor(monthIndex / 12)}-${String((monthIndex % 12) + 1).padStart(2, '0')}`;
+}
+
+export function Settings({ theme = 'system', setTheme = () => undefined }: Props) {
+  const profile = useData<Row>('/me');
+  const save = useSave();
+  const [day, setDay] = useState(25);
+  useEffect(() => {
+    if (profile.data?.expense_rollover_day) setDay(Number(profile.data.expense_rollover_day));
+  }, [profile.data?.expense_rollover_day]);
+  return (
+    <>
+      <PageHeader
+        eyebrow="PREFERÊNCIAS"
+        title="Configurações"
+        description="Ajustes gerais do seu espaço financeiro."
+      />
+      <LoadState loading={profile.isLoading} error={profile.error} />
+      <div className="settings-grid">
+        <Panel
+          title="Mês financeiro"
+          description="Escolha quando despesas antecipadas passam a pertencer ao mês seguinte."
+        >
+          <p className="quiet-note">
+            Exemplo: com dia {day}, uma despesa nessa data será sugerida para o mês seguinte.
+          </p>
+          <div className="day-picker" aria-label="Dia da virada do mês">
+            {Array.from({ length: 31 }, (_, index) => index + 1).map((value) => (
+              <button
+                key={value}
+                type="button"
+                className={day === value ? 'active' : ''}
+                aria-pressed={day === value}
+                onClick={() => setDay(value)}
+              >
+                {value}
+              </button>
+            ))}
+          </div>
+          {save.error && <p className="error-box">{save.error.message}</p>}
+          <button
+            className="button settings-save"
+            disabled={save.isPending || day === Number(profile.data?.expense_rollover_day)}
+            onClick={() =>
+              save.mutate({ path: '/me', method: 'PATCH', data: { expense_rollover_day: day } })
+            }
+          >
+            {save.isPending ? 'A guardar…' : `Guardar dia ${day}`}
+          </button>
+        </Panel>
+        <Panel title="Aparência" description="Escolha como o Saldo aparece neste navegador.">
+          <div className="theme-picker">
+            {(
+              [
+                ['system', 'Automático'],
+                ['light', 'Claro'],
+                ['dark', 'Escuro'],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                className={theme === value ? 'active' : ''}
+                aria-pressed={theme === value}
+                onClick={() => setTheme(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </Panel>
+      </div>
+    </>
+  );
+}
 const kinds: Record<string, string> = {
   income: 'Receita',
   expense: 'Despesa',
@@ -115,6 +202,11 @@ function AccountsLink({ small = false }: { small?: boolean }) {
 }
 
 export function Accounts({ accounts, open }: Props) {
+  const [showArchived, setShowArchived] = useState(false);
+  const visibleAccounts = accounts.filter((account) =>
+    showArchived ? account.archived === true : !account.archived,
+  );
+  const archivedCount = accounts.filter((account) => account.archived).length;
   return (
     <>
       <PageHeader
@@ -123,6 +215,12 @@ export function Accounts({ accounts, open }: Props) {
         description="Contas, benefícios e cofrinhos. Sem duplicar seu dinheiro."
         action={<AddButton onClick={() => open(accountForm())}>Nova conta</AddButton>}
       />
+      {archivedCount > 0 && (
+        <button className="account-view-toggle" onClick={() => setShowArchived((value) => !value)}>
+          {showArchived ? <ArchiveRestore size={16} /> : <Archive size={16} />}
+          {showArchived ? 'Voltar às contas ativas' : `Ver arquivadas (${archivedCount})`}
+        </button>
+      )}
       {!accounts.length ? (
         <Panel title="Suas contas">
           <Empty
@@ -135,7 +233,7 @@ export function Accounts({ accounts, open }: Props) {
       ) : (
         <div className="account-sections">
           {accountSections.map((section) => {
-            const sectionAccounts = accounts.filter(
+            const sectionAccounts = visibleAccounts.filter(
               (account) => account.purpose === section.purpose,
             );
             if (!sectionAccounts.length) return null;
@@ -242,12 +340,23 @@ export function Accounts({ accounts, open }: Props) {
   );
 }
 
-export function Transactions({ month, setMonth, open, accounts, categories }: Props) {
+export function Transactions({
+  month,
+  setMonth,
+  open,
+  accounts,
+  categories,
+  expenseRolloverDay = 25,
+}: Props) {
   const [page, setPage] = useState(1),
-    [accountId, setAccount] = useState('');
+    [accountId, setAccount] = useState(''),
+    [periodMode, setPeriodMode] = useState<PeriodMode>('month'),
+    [range, setRange] = useState<DateRange>({ from: `${month}-01`, to: currentDate() });
+  const bounds = periodBounds(periodMode, month, range);
   const query = useData(
-    `/transactions?month=${month}&page=${page}${accountId ? `&account_id=${accountId}` : ''}`,
+    `/transactions?from=${bounds.from}&to=${bounds.to}&page=${page}${accountId ? `&account_id=${accountId}` : ''}`,
   );
+  const transfers = useData('/transactions/transfers');
   const items = query.data || [];
   const hasActiveAccount = accounts.some((account) => !account.archived);
 
@@ -258,7 +367,25 @@ export function Transactions({ month, setMonth, open, accounts, categories }: Pr
           eyebrow="MOVIMENTAÇÕES"
           title="O que aconteceu de verdade."
           description="Receitas, despesas e transferências registradas por você."
-          action={<PeriodNavigator month={month} onChange={setMonth} />}
+          action={
+            <PeriodSelector
+              mode={periodMode}
+              onModeChange={(value) => {
+                setPeriodMode(value);
+                setPage(1);
+              }}
+              month={month}
+              onMonthChange={(value) => {
+                setMonth(value);
+                setPage(1);
+              }}
+              range={range}
+              onRangeChange={(value) => {
+                setRange(value);
+                setPage(1);
+              }}
+            />
+          }
         />
         <Panel title="Antes de registrar uma movimentação">
           <Empty title="Configure uma conta na área de Contas" action={<AccountsLink />}>
@@ -278,8 +405,35 @@ export function Transactions({ month, setMonth, open, accounts, categories }: Pr
         description="Receitas, despesas e transferências registradas por você."
         action={
           <div className="header-actions">
-            <PeriodNavigator month={month} onChange={setMonth} />
-            <AddButton onClick={() => open(transactionCreateForm(accounts, categories))}>
+            <PeriodSelector
+              mode={periodMode}
+              onModeChange={(value) => {
+                setPeriodMode(value);
+                setPage(1);
+              }}
+              month={month}
+              onMonthChange={(value) => {
+                setMonth(value);
+                setPage(1);
+              }}
+              range={range}
+              onRangeChange={(value) => {
+                setRange(value);
+                setPage(1);
+              }}
+            />
+            <AddButton
+              onClick={() =>
+                open(
+                  transactionCreateForm(
+                    accounts,
+                    categories,
+                    expenseRolloverDay,
+                    transfers.data || [],
+                  ),
+                )
+              }
+            >
               Nova movimentação
             </AddButton>
           </div>
@@ -304,7 +458,7 @@ export function Transactions({ month, setMonth, open, accounts, categories }: Pr
         </div>
         <LoadState loading={query.isLoading} error={query.error} />
         {!query.isLoading && !query.error && (
-          <Panel title="Histórico do mês" description="Somente movimentações realizadas">
+          <Panel title="Histórico do período" description="Somente movimentações realizadas">
             {!items.length ? (
               <Empty title="Nenhuma movimentação encontrada">
                 Registre o que recebeu ou pagou neste período.
@@ -363,7 +517,16 @@ export function Transactions({ month, setMonth, open, accounts, categories }: Pr
                                 className="icon-button"
                                 aria-label={`Editar ${t.description}`}
                                 onClick={() =>
-                                  open(transactionForm(t.kind, accounts, categories, t))
+                                  open(
+                                    transactionForm(
+                                      t.kind,
+                                      accounts,
+                                      categories,
+                                      t,
+                                      expenseRolloverDay,
+                                      transfers.data || [],
+                                    ),
+                                  )
                                 }
                               >
                                 <Pencil size={16} />
@@ -418,11 +581,14 @@ export function Transactions({ month, setMonth, open, accounts, categories }: Pr
 }
 
 export function Budgets({ month, setMonth, open, categories }: Props) {
-  const query = useData(`/budgets/${month}`);
-  const items = (query.data || []).filter(
-    (b) =>
-      b.budget !== null || Number(b.spent) > 0 || Number(b.expected) > 0 || Number(b.committed) > 0,
+  const [periodMode, setPeriodMode] = useState<PeriodMode>('month');
+  const [range, setRange] = useState<DateRange>({ from: `${month}-01`, to: currentDate() });
+  const bounds = periodBounds(periodMode, month, range);
+  const monthly = periodMode === 'month';
+  const query = useData(
+    monthly ? `/budgets/${month}` : `/budgets/range?from=${bounds.from}&to=${bounds.to}`,
   );
+  const items = (query.data || []).filter((b) => b.budget !== null);
   return (
     <>
       <PageHeader
@@ -431,52 +597,21 @@ export function Budgets({ month, setMonth, open, categories }: Props) {
         description="O realizado mostra o que saiu. Previsões e parcelas mostram o que ainda pode sair."
         action={
           <div className="header-actions">
-            <PeriodNavigator month={month} onChange={setMonth} />
-            <AddButton
-              onClick={() =>
-                open({
-                  title: 'Definir orçamento',
-                  description:
-                    'O orçamento pode continuar nos próximos meses ou ser uma exceção somente para o mês selecionado.',
-                  path: `/budgets/${month}`,
-                  method: 'PUT',
-                  fields: [
-                    {
-                      name: 'category_id',
-                      label: 'Categoria',
-                      options: options(categories.filter((c) => c.kind === 'expense')),
-                      searchable: true,
-                    },
-                    { name: 'amount', label: 'Limite mensal (€)' },
-                    {
-                      name: 'scope',
-                      label: 'Aplicar',
-                      value: 'future',
-                      options: [
-                        { value: 'future', label: 'Deste mês em diante' },
-                        { value: 'month', label: 'Somente neste mês' },
-                      ],
-                    },
-                  ],
-                  map: (d) => ({ ...d, amount: decimal(d.amount) }),
-                })
-              }
-            >
-              Definir orçamento
-            </AddButton>
-          </div>
-        }
-      />
-      <LoadState loading={query.isLoading} error={query.error} />
-      {!items.length && !query.isLoading ? (
-        <Panel title="Seus limites">
-          <Empty
-            title="Planeje os gastos por categoria"
-            action={
+            <PeriodSelector
+              mode={periodMode}
+              onModeChange={setPeriodMode}
+              month={month}
+              onMonthChange={setMonth}
+              range={range}
+              onRangeChange={setRange}
+            />
+            {monthly && (
               <AddButton
                 onClick={() =>
                   open({
                     title: 'Definir orçamento',
+                    description:
+                      'O orçamento pode continuar nos próximos meses ou ser uma exceção somente para o mês selecionado.',
                     path: `/budgets/${month}`,
                     method: 'PUT',
                     fields: [
@@ -501,11 +636,56 @@ export function Budgets({ month, setMonth, open, categories }: Props) {
                   })
                 }
               >
-                Criar orçamento
+                Definir orçamento
               </AddButton>
+            )}
+          </div>
+        }
+      />
+      <LoadState loading={query.isLoading} error={query.error} />
+      {!monthly && <p className="quiet-note">Para alterar um limite, selecione a visão mensal.</p>}
+      {!items.length && !query.isLoading ? (
+        <Panel title="Seus limites">
+          <Empty
+            title="Planeje os gastos por categoria"
+            action={
+              monthly ? (
+                <AddButton
+                  onClick={() =>
+                    open({
+                      title: 'Definir orçamento',
+                      path: `/budgets/${month}`,
+                      method: 'PUT',
+                      fields: [
+                        {
+                          name: 'category_id',
+                          label: 'Categoria',
+                          options: options(categories.filter((c) => c.kind === 'expense')),
+                          searchable: true,
+                        },
+                        { name: 'amount', label: 'Limite mensal (€)' },
+                        {
+                          name: 'scope',
+                          label: 'Aplicar',
+                          value: 'future',
+                          options: [
+                            { value: 'future', label: 'Deste mês em diante' },
+                            { value: 'month', label: 'Somente neste mês' },
+                          ],
+                        },
+                      ],
+                      map: (d) => ({ ...d, amount: decimal(d.amount) }),
+                    })
+                  }
+                >
+                  Criar orçamento
+                </AddButton>
+              ) : undefined
             }
           >
-            Defina quanto pretende gastar neste mês. O orçamento não altera saldos.
+            {monthly
+              ? 'Defina quanto pretende gastar neste mês. O orçamento não altera saldos.'
+              : 'Nenhum orçamento foi encontrado no período. Selecione a visão mensal para definir um limite.'}
           </Empty>
         </Panel>
       ) : (
@@ -528,7 +708,7 @@ export function Budgets({ month, setMonth, open, categories }: Props) {
                     )}
                   </div>
                   <div className="row-actions">
-                    {b.budget_scope === 'month' && (
+                    {monthly && b.budget_scope === 'month' && (
                       <button
                         className="icon-button"
                         aria-label={`Remover exceção de ${b.name}`}
@@ -547,36 +727,38 @@ export function Budgets({ month, setMonth, open, categories }: Props) {
                         <RotateCcw size={15} />
                       </button>
                     )}
-                    <button
-                      className="icon-button"
-                      aria-label={`Editar limite de ${b.name}`}
-                      onClick={() =>
-                        open({
-                          title: `Orçamento de ${b.name}`,
-                          path: `/budgets/${month}`,
-                          method: 'PUT',
-                          fields: [
-                            { name: 'amount', label: 'Limite mensal (€)', value: b.budget || '' },
-                            {
-                              name: 'scope',
-                              label: 'Aplicar alteração',
-                              value: b.budget_scope === 'month' ? 'month' : 'future',
-                              options: [
-                                { value: 'future', label: 'Deste mês em diante' },
-                                { value: 'month', label: 'Somente neste mês' },
-                              ],
-                            },
-                          ],
-                          map: (d) => ({
-                            category_id: b.category_id,
-                            amount: decimal(d.amount),
-                            scope: d.scope,
-                          }),
-                        })
-                      }
-                    >
-                      <Pencil size={15} />
-                    </button>
+                    {monthly && (
+                      <button
+                        className="icon-button"
+                        aria-label={`Editar limite de ${b.name}`}
+                        onClick={() =>
+                          open({
+                            title: `Orçamento de ${b.name}`,
+                            path: `/budgets/${month}`,
+                            method: 'PUT',
+                            fields: [
+                              { name: 'amount', label: 'Limite mensal (€)', value: b.budget || '' },
+                              {
+                                name: 'scope',
+                                label: 'Aplicar alteração',
+                                value: b.budget_scope === 'month' ? 'month' : 'future',
+                                options: [
+                                  { value: 'future', label: 'Deste mês em diante' },
+                                  { value: 'month', label: 'Somente neste mês' },
+                                ],
+                              },
+                            ],
+                            map: (d) => ({
+                              category_id: b.category_id,
+                              amount: decimal(d.amount),
+                              scope: d.scope,
+                            }),
+                          })
+                        }
+                      >
+                        <Pencil size={15} />
+                      </button>
+                    )}
                   </div>
                 </div>
                 <div className="budget-total">
@@ -1423,10 +1605,20 @@ export function FuturePlans({ open }: Props) {
   );
 }
 
-export function Recurrences({ month, setMonth, open, accounts, categories }: Props) {
-  const query = useData(`/occurrences?month=${month}`),
+export function Recurrences({
+  month,
+  setMonth,
+  open,
+  accounts,
+  categories,
+  expenseRolloverDay = 25,
+}: Props) {
+  const [periodMode, setPeriodMode] = useState<PeriodMode>('month');
+  const [range, setRange] = useState<DateRange>({ from: `${month}-01`, to: currentDate() });
+  const bounds = periodBounds(periodMode, month, range);
+  const query = useData(`/occurrences?from=${bounds.from}&to=${bounds.to}`),
     rules = useData('/recurrences');
-  const history = useData(`/transactions?month=${month}&page=1`);
+  const history = useData(`/transactions?from=${bounds.from}&to=${bounds.to}&page=1`);
   const hasActiveAccount = accounts.some((account) => !account.archived);
   const occurrenceRows = [
     ...(query.data || []).filter((item) => item.kind === 'income'),
@@ -1444,7 +1636,16 @@ export function Recurrences({ month, setMonth, open, accounts, categories }: Pro
           eyebrow="RECORRENTES"
           title="Antecipe. Confira. Confirme."
           description="Previsões não são pagamentos. Você decide quando viram realidade."
-          action={<PeriodNavigator month={month} onChange={setMonth} />}
+          action={
+            <PeriodSelector
+              mode={periodMode}
+              onModeChange={setPeriodMode}
+              month={month}
+              onMonthChange={setMonth}
+              range={range}
+              onRangeChange={setRange}
+            />
+          }
         />
         <Panel title="Antes de criar uma recorrência">
           <Empty title="Configure uma conta na área de Contas" action={<AccountsLink />}>
@@ -1463,7 +1664,14 @@ export function Recurrences({ month, setMonth, open, accounts, categories }: Pro
         description="Previsões não são pagamentos. Você decide quando viram realidade."
         action={
           <div className="header-actions">
-            <PeriodNavigator month={month} onChange={setMonth} />
+            <PeriodSelector
+              mode={periodMode}
+              onModeChange={setPeriodMode}
+              month={month}
+              onMonthChange={setMonth}
+              range={range}
+              onRangeChange={setRange}
+            />
             <AddButton onClick={() => open(recurrenceCreateForm(accounts, categories))}>
               Novo recorrente
             </AddButton>
@@ -1471,7 +1679,10 @@ export function Recurrences({ month, setMonth, open, accounts, categories }: Pro
         }
       />
       <LoadState loading={query.isLoading || rules.isLoading} error={query.error || rules.error} />
-      <Panel title="Ocorrências do mês" description="Valores previstos para o período selecionado">
+      <Panel
+        title="Ocorrências do período"
+        description="Valores previstos para o período selecionado"
+      >
         {!query.data?.length ? (
           <Empty title="Sem previsões neste mês">
             Cadastre despesas, receitas ou aportes e escolha de quantos em quantos meses se repetem.
@@ -1591,8 +1802,27 @@ export function Recurrences({ month, setMonth, open, accounts, categories }: Pro
                                   value: currentDate(),
                                   max: currentDate(),
                                 },
+                                ...(o.kind === 'income'
+                                  ? [
+                                      {
+                                        name: 'reference_month',
+                                        label: 'Mês do orçamento',
+                                        type: 'month',
+                                        value: suggestedReferenceMonth(
+                                          o.due_on,
+                                          expenseRolloverDay,
+                                        ),
+                                        hint: 'Você pode alterar o mês antes de confirmar o recebimento.',
+                                      },
+                                    ]
+                                  : []),
                               ],
-                              map: (d) => ({ ...d, amount: decimal(d.amount) }),
+                              map: (d) => ({
+                                ...d,
+                                amount: decimal(d.amount),
+                                reference_month:
+                                  o.kind === 'income' ? d.reference_month || null : null,
+                              }),
                               submit: 'Confirmar',
                             })
                           }
@@ -1718,6 +1948,22 @@ export function Recurrences({ month, setMonth, open, accounts, categories }: Pro
                   >
                     {r.active ? 'Desativar' : 'Reativar'}
                   </button>
+                  <button
+                    className="icon-button danger"
+                    aria-label={`Excluir recorrência ${r.description}`}
+                    onClick={() =>
+                      open(
+                        zeroForm(
+                          'Excluir recorrência',
+                          `/recurrences/${r.id}`,
+                          'DELETE',
+                          'A regra e suas previsões não confirmadas deixarão de aparecer. Movimentações já confirmadas e saldos serão preservados.',
+                        ),
+                      )
+                    }
+                  >
+                    <Trash2 size={15} />
+                  </button>
                 </div>
               </Fragment>
             ))}
@@ -1832,6 +2078,36 @@ export function Cards({ open, openPurchase, accounts, categories }: Props) {
                     >
                       {expanded === i.id ? 'Fechar' : 'Detalhes'}
                     </button>
+                    {!i.payment_id && (
+                      <button
+                        className="text-link"
+                        onClick={() =>
+                          open({
+                            title: `Editar fatura · ${i.card_name}`,
+                            description:
+                              'O valor é calculado pelas compras; ajuste apenas as datas.',
+                            path: `/invoices/${i.id}`,
+                            method: 'PATCH',
+                            fields: [
+                              {
+                                name: 'closes_on',
+                                label: 'Data de fechamento',
+                                type: 'date',
+                                value: i.closes_on,
+                              },
+                              {
+                                name: 'due_on',
+                                label: 'Data de vencimento',
+                                type: 'date',
+                                value: i.due_on,
+                              },
+                            ],
+                          })
+                        }
+                      >
+                        Editar datas
+                      </button>
+                    )}
                     {i.payment_id || (Number(i.amount) === 0 && Number(i.historical_amount) > 0) ? (
                       <span className="badge success">
                         {i.payment_id ? 'Paga' : 'Paga antes do acompanhamento'}
@@ -1860,6 +2136,13 @@ export function Cards({ open, openPurchase, accounts, categories }: Props) {
                                 type: 'date',
                                 value: currentDate(),
                                 max: currentDate(),
+                              },
+                              {
+                                name: 'reference_month',
+                                label: 'Mês a que esta fatura pertence',
+                                type: 'month',
+                                value: String(i.month).slice(0, 7),
+                                hint: 'Uma fatura de outubro paga em setembro continuará no orçamento de outubro.',
                               },
                             ],
                             submit: 'Confirmar pagamento',

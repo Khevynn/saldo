@@ -1,6 +1,12 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;450;500;550;600;650;700&family=Manrope:wght@400;500;600;650;700;750;800&display=swap');
 :root {
-  font-family: 'DM Sans', system-ui, sans-serif;
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
   color: #233c35;
   background: #f5f6f3;
   font-synthesis: none;
@@ -61,7 +67,7 @@ h2,
 h3,
 .metric strong,
 .account-card > strong {
-  font-family: 'Manrope', system-ui, sans-serif;
+  font-family: inherit;
 }
 h1 {
   font-size: 30px;
@@ -122,7 +128,7 @@ input[type='checkbox'] {
 .brand {
   display: flex;
   align-items: center;
-  font-family: 'Manrope', sans-serif;
+  font-family: inherit;
   font-size: 33px;
   font-weight: 800;
   letter-spacing: -1.6px;
@@ -138,18 +144,11 @@ input[type='checkbox'] {
   margin-left: -9px;
 }
 .brand-mark {
-  display: grid;
-  place-items: center;
-  background: #b9d69c;
-  color: #1b4437;
-  border-radius: 11px;
-  width: 34px;
-  height: 38px;
-  font-size: 29px;
-  font-style: italic;
-  font-weight: 800;
-  letter-spacing: -3px;
-  padding-right: 4px;
+  display: block;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  object-fit: contain;
 }
 .workspace-label {
   font-size: 9px;
@@ -969,9 +968,36 @@ dd {
   color: var(--danger) !important;
 }
 .loading {
+  min-height: 240px;
   padding: 60px 20px;
   color: var(--muted);
   text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+.loading strong {
+  color: #29463d;
+  font-size: 14px;
+}
+.loading small {
+  max-width: 360px;
+}
+.loading-spinner {
+  width: 28px;
+  height: 28px;
+  margin-bottom: 6px;
+  border: 3px solid #dce8e2;
+  border-top-color: #27705d;
+  border-radius: 50%;
+  animation: loading-spin 0.8s linear infinite;
+}
+@keyframes loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 .error-box {
   border: 1px solid #eed4cc;
@@ -1126,9 +1152,39 @@ footer {
   margin-bottom: 100px;
 }
 .auth-copy h1 {
+  color: #f5f7ed;
   font-size: clamp(36px, 4vw, 60px);
   line-height: 1.2;
   letter-spacing: -2px;
+}
+.analysis-period {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.analysis-period > select {
+  min-height: 38px;
+  width: auto;
+  min-width: 170px;
+}
+.custom-period-fields {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+.custom-period-fields label {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.custom-period-fields input {
+  min-height: 38px;
 }
 .auth-copy p {
   font-size: 16px;
@@ -1143,9 +1199,21 @@ footer {
   font-size: 11px;
 }
 .auth-form {
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   padding: 30px;
+}
+.auth-submit-status {
+  width: min(100%, 400px);
+  margin-top: 12px;
+  color: #55736a;
+  font-size: 12px;
+  text-align: center;
+}
+.auth-submit-status.error {
+  color: #b42318;
 }
 .setup-page {
   min-height: 100vh;
@@ -1178,6 +1246,14 @@ footer {
 .setup-note code {
   font-size: 11px;
   overflow-wrap: anywhere;
+}
+.startup-retry {
+  align-self: flex-start;
+}
+@media (prefers-reduced-motion: reduce) {
+  .loading-spinner {
+    animation: none !important;
+  }
 }
 .sr-only {
   position: absolute;
@@ -1314,6 +1390,20 @@ footer {
   .header-actions {
     width: 100%;
     justify-content: flex-start;
+  }
+  .analysis-period {
+    width: 100%;
+    justify-content: flex-start;
+  }
+  .analysis-period > select,
+  .custom-period-fields,
+  .custom-period-fields label,
+  .custom-period-fields input {
+    width: 100%;
+  }
+  .custom-period-fields {
+    align-items: stretch;
+    flex-direction: column;
   }
   .period-navigator {
     max-width: 100%;

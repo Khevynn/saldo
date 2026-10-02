@@ -216,7 +216,7 @@ export class PlanningService {
   async materialize(db: Db, user: string, month: string) {
     const rules = await rows(
       db,
-      sql`SELECT * FROM recurrences WHERE user_id=${user} AND active AND starts_on<${shiftMonth(month, 1) + '-01'}::date AND (ends_on IS NULL OR ends_on>=${month + '-01'}::date)`,
+      sql`SELECT * FROM recurrences WHERE user_id=${user} AND active AND deleted_at IS NULL AND starts_on<${shiftMonth(month, 1) + '-01'}::date AND (ends_on IS NULL OR ends_on>=${month + '-01'}::date)`,
     );
     for (const rule of rules) {
       const [startYear, startMonth] = String(rule.starts_on).slice(0, 7).split('-').map(Number);
@@ -231,7 +231,15 @@ export class PlanningService {
   }
   async budget(db: Db, user: string, month: string) {
     await this.materialize(db, user, month);
-    const result = await rows(
+    const result = await rows<{
+      category_id: string;
+      name: string;
+      budget: string | null;
+      budget_scope: string | null;
+      spent: string;
+      expected: string;
+      committed: string;
+    }>(
       db,
       sql`SELECT c.id AS category_id,c.name,
       coalesce(o.amount,r.amount)::text AS budget,

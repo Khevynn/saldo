@@ -12,8 +12,9 @@ services:
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://finance_app:${DOCKER_APP_DB_PASSWORD:?Defina DOCKER_APP_DB_PASSWORD no arquivo .env}@db:5432/finance
-      WEB_ORIGIN: ${PUBLIC_APP_URL:?Defina PUBLIC_APP_URL com a origem HTTPS sem barra final}
-      CLERK_AUTHORIZED_PARTIES: ${PUBLIC_APP_URL:?Defina PUBLIC_APP_URL com a origem HTTPS sem barra final}
+      WEB_ORIGIN: ${PUBLIC_APP_URL:?Defina PUBLIC_APP_URL com a origem HTTPS sem barra final},https://localhost,https://mobile.saldo.bdpserver.online
+      CLERK_AUTHORIZED_PARTIES: ${PUBLIC_APP_URL:?Defina PUBLIC_APP_URL com a origem HTTPS sem barra final},https://localhost,https://mobile.saldo.bdpserver.online
+      MOBILE_UPDATE_BASE_URL: ${PUBLIC_APP_URL:?Defina PUBLIC_APP_URL com a origem HTTPS sem barra final}
       ALLOW_PLAINTEXT_DATABASE_ON_PRIVATE_DOCKER_NETWORK: "true"
 
   tunnel:

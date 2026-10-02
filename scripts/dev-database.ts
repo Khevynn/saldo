@@ -10,7 +10,7 @@ const exec = promisify(execFile);
 
 async function main() {
   const setup = process.argv.includes('--setup');
-  const environmentFile = resolve('.env');
+  const environmentFile = resolve('apps', 'api', '.env');
   let contents: string;
   try {
     contents = await readFile(environmentFile, 'utf8');
@@ -19,7 +19,7 @@ async function main() {
       throw new Error('Execute npm run setup:local para preparar o ambiente.');
     const adminPassword = randomBytes(24).toString('hex'),
       appPassword = randomBytes(24).toString('hex');
-    contents = (await readFile('.env.example', 'utf8'))
+    contents = (await readFile(resolve('apps', 'api', '.env.example'), 'utf8'))
       .replace(
         'postgresql://postgres:postgres@localhost:5432/finance',
         `postgresql://postgres:${adminPassword}@127.0.0.1:55432/finance`,
@@ -31,7 +31,7 @@ async function main() {
       .replace('APP_DB_PASSWORD=change-local-password', `APP_DB_PASSWORD=${appPassword}`);
     await writeFile(environmentFile, contents, { flag: 'wx', mode: 0o600 });
     console.log(
-      '.env criado com credenciais locais aleatórias. As chaves Clerk permanecem vazias.',
+      'apps/api/.env criado com credenciais locais aleatórias. As chaves Clerk permanecem vazias.',
     );
   }
   const requestedPort = process.argv.find((arg) => arg.startsWith('--port='))?.slice(7);
@@ -149,7 +149,7 @@ async function main() {
     pool = undefined;
     if (setup) {
       console.log(
-        'Banco local preparado. Configure as chaves Clerk no .env; depois execute npm run dev:local.',
+        'Banco local preparado. Configure as chaves Clerk em apps/api/.env; depois execute npm run dev:local.',
       );
     } else {
       console.log(

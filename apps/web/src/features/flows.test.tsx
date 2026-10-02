@@ -6,7 +6,7 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import { Accounts, Transactions, Cards, FuturePlans, Goals, Recurrences } from './pages';
-import { EntityCombobox, FormDialog } from '../components/ui';
+import { EntityCombobox, FormDialog, periodBounds } from '../components/ui';
 import { futurePlanForm, transactionCreateForm, transactionForm } from './forms';
 import { buildPurchaseSchedule, PurchaseDialog } from './purchase-dialog';
 import { euro } from '../lib/api';
@@ -18,6 +18,25 @@ afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
   window.history.replaceState({}, '', '/');
+});
+
+describe('period selection', () => {
+  const custom = { from: '2026-02-03', to: '2026-04-09' };
+
+  it('calculates complete monthly and annual boundaries', () => {
+    expect(periodBounds('month', '2026-02', custom)).toEqual({
+      from: '2026-02-01',
+      to: '2026-02-28',
+    });
+    expect(periodBounds('year', '2026-02', custom)).toEqual({
+      from: '2026-01-01',
+      to: '2026-12-31',
+    });
+  });
+
+  it('preserves a custom range', () => {
+    expect(periodBounds('custom', '2026-02', custom)).toEqual(custom);
+  });
 });
 const account = { id: 'acc-1', name: 'Principal', balance: '100', purpose: 'available' },
   category = { id: 'cat-1', name: 'Alimentação', kind: 'expense' };

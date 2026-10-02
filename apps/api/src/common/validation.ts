@@ -59,6 +59,8 @@ export const transactionInput = z
     amount: positiveMoney,
     received: positiveMoney.nullish(),
     occurred_on: pastDate,
+    reference_month: month.nullish().optional(),
+    funding_transfer_id: id.nullish().optional(),
   })
   .strict();
 export const recurrenceInput = z
@@ -106,7 +108,12 @@ export const futurePlanPocketInput = z
   })
   .strict();
 export const occurrenceConfirm = z
-  .object({ account_id: id, amount: positiveMoney, occurred_on: pastDate })
+  .object({
+    account_id: id,
+    amount: positiveMoney,
+    occurred_on: pastDate,
+    reference_month: month.nullish().optional(),
+  })
   .strict();
 export const goalInput = z
   .object({
@@ -182,8 +189,20 @@ export const purchaseInput = z
     });
   });
 export const invoicePayment = z
-  .object({ account_id: id, occurred_on: pastDate, expected_amount: positiveMoney })
+  .object({
+    account_id: id,
+    occurred_on: pastDate,
+    expected_amount: positiveMoney,
+    reference_month: month.nullish().optional(),
+  })
   .strict();
+export const invoicePatch = z
+  .object({ closes_on: date, due_on: date })
+  .strict()
+  .refine((value) => value.due_on >= value.closes_on, {
+    message: 'O vencimento não pode ser anterior ao fechamento.',
+    path: ['due_on'],
+  });
 export const budgetInput = z
   .object({
     category_id: id,
@@ -201,6 +220,7 @@ const labels: Record<string, string> = {
   amount: 'Valor',
   received: 'Valor recebido',
   occurred_on: 'Data efetiva',
+  reference_month: 'Mês de referência',
   opening_balance: 'Saldo inicial',
   opening_date: 'Data inicial',
   description: 'Descrição',
